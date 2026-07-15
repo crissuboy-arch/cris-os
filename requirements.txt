@@ -1,0 +1,17 @@
+# ============================================================
+# CRIS OS - Dependencias Python
+# Instale com:  pip install -r requirements.txt
+# ============================================================
+
+# Carrega variaveis do arquivo .env
+python-dotenv==1.0.1
+
+# Requisicoes HTTP (usado para falar com o Ollama)
+requests==2.32.3
+
+# Bot do Telegram (API assincrona moderna)
+python-telegram-bot==21.6
+
+# Browser Tool SOMENTE LEITURA (Bloco 7). Import lazy: o sistema roda sem ela.
+# Uso real exige tambem: python -m playwright install chromium
+playwright>=1.40

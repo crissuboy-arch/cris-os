@@ -1,0 +1,14 @@
+{
+  "name": "{{NAME}}",
+  "title": "{{TITLE}}",
+  "description": "{{DESCRIPTION}}",
+  "version": "{{VERSION}}",
+  "status": "scaffold",
+  "enabled": false,
+  "category": "{{CATEGORY}}",
+  "entry": "SKILL.md",
+  "agents": [],
+  "tools": [],
+  "inputs": [],
+  "outputs": []
+}

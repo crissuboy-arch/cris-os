@@ -1,0 +1,12 @@
+{
+  "name": "vitrinepro",
+  "domain": "vitrinepro",
+  "keywords": ["vitrinepro", "vitrine pro", "negócio local", "negocio local"],
+  "title": "VitrinePro",
+  "description": "Especialista em negócios locais (VitrinePro): presença digital e vendas para comércios locais.",
+  "enabled": true,
+  "delegate": true,
+  "status": "draft",
+  "projects": ["VitrinePro"],
+  "tools": []
+}

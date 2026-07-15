@@ -1,0 +1,11 @@
+{
+  "name": "secretary",
+  "domain": "pessoal",
+  "title": "Secretária IA",
+  "description": "Agenda, organização, lembretes, prioridades, rotina, saúde (caminhada/água/descanso), reuniões e tarefas pessoais. É a escolha padrão para o dia a dia e para organizar qualquer coisa solta.",
+  "enabled": true,
+  "delegate": true,
+  "status": "production",
+  "projects": [],
+  "tools": []
+}

@@ -1,0 +1,15 @@
+{
+  "name": "roast",
+  "domain": "sistema",
+  "title": "Roast",
+  "description": "Análise crítica e bem-humorada de um texto, ideia ou projeto: aponta pontos fracos sem dó, em tom construtivo, e sugere melhorias.",
+  "version": "0.1.0",
+  "status": "scaffold",
+  "enabled": false,
+  "category": "feedback",
+  "entry": "SKILL.md",
+  "agents": [],
+  "tools": [],
+  "inputs": [],
+  "outputs": []
+}

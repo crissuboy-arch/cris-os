@@ -1,0 +1,12 @@
+{
+  "name": "financeiro",
+  "domain": "financeiro",
+  "keywords": ["financeiro", "venda", "vendas", "receita", "despesa", "lucro", "meta"],
+  "title": "Financeiro",
+  "description": "Controle financeiro: receitas, despesas, metas, lucro e investimentos. Nunca inventa valores.",
+  "enabled": true,
+  "delegate": true,
+  "status": "draft",
+  "projects": ["*"],
+  "tools": []
+}

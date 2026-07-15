@@ -1,0 +1,12 @@
+{
+  "name": "atendimento",
+  "domain": "atendimento",
+  "keywords": ["cliente", "atendimento", "suporte", "whatsapp"],
+  "title": "Atendimento",
+  "description": "Atendimento a clientes: dúvidas, suporte e respostas sobre os produtos e serviços (Produtos 3D, Zavix, Currículo, ScalaFlow, PinkLogic, VitrinePro, Sites, Marketing Digital).",
+  "enabled": true,
+  "delegate": true,
+  "status": "draft",
+  "projects": ["*"],
+  "tools": []
+}

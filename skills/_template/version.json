@@ -1,0 +1,7 @@
+{
+  "version": "{{VERSION}}",
+  "status": "scaffold",
+  "changelog": [
+    { "version": "{{VERSION}}", "date": "{{DATE}}", "note": "Estrutura inicial (scaffold), sem implementacao." }
+  ]
+}

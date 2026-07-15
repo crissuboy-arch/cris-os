@@ -1,0 +1,12 @@
+{
+  "name": "curriculo",
+  "domain": "curriculo",
+  "keywords": ["curriculo", "currículo", "cv"],
+  "title": "Currículos",
+  "description": "Especialista na ferramenta de currículo (produto Currículo Gratuito): criação e revisão de currículos.",
+  "enabled": true,
+  "delegate": true,
+  "status": "draft",
+  "projects": ["Currículo Gratuito"],
+  "tools": []
+}

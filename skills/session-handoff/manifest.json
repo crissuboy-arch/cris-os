@@ -1,0 +1,36 @@
+{
+  "name": "session-handoff",
+  "domain": "sistema",
+  "title": "Session Handoff",
+  "description": "Empacota o estado da sessão atual (contexto, decisões e próximos passos) para retomar depois ou em outra máquina.",
+  "version": "1.0.0",
+  "status": "production",
+  "enabled": true,
+  "category": "workflow",
+  "entry": "SKILL.md",
+  "executor": "handler:SessionHandoffSkill",
+  "agents": ["*"],
+  "tools": [],
+  "keywords": ["handoff", "hand off", "handover"],
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "action": {
+        "type": "string",
+        "enum": ["save", "resume"],
+        "description": "save = empacotar o estado da sessão; resume = retomar o último handoff."
+      },
+      "notes": {
+        "type": "string",
+        "description": "Notas livres para registrar no handoff."
+      },
+      "next_steps": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Próximos passos a registrar para retomar depois."
+      }
+    },
+    "required": ["action"]
+  },
+  "outputs": ["handoff_id", "summary", "data"]
+}

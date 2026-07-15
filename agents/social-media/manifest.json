@@ -1,0 +1,12 @@
+{
+  "name": "social-media",
+  "domain": "marketing",
+  "keywords": ["post", "instagram", "facebook", "tiktok", "youtube", "reels", "hashtag"],
+  "title": "Social Media",
+  "description": "Redes sociais (Instagram, TikTok, Facebook, YouTube, Threads, Pinterest): calendário de conteúdo, legendas, hashtags, cronograma e estratégias.",
+  "enabled": true,
+  "delegate": true,
+  "status": "draft",
+  "projects": ["*"],
+  "tools": []
+}

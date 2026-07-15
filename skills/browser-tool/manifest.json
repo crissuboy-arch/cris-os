@@ -1,0 +1,21 @@
+{
+  "name": "browser-tool",
+  "domain": "pesquisa",
+  "title": "Browser Tool",
+  "description": "Navegação web (Playwright) em modo leitura/extração: abrir páginas, ler produtos, extrair links, capturar screenshots e baixar imagens. Ações que alteram o mundo exigem confirmação da Cris.",
+  "version": "0.1.0",
+  "status": "scaffold",
+  "enabled": false,
+  "category": "web",
+  "entry": "SKILL.md",
+  "agents": [
+    "pesquisador",
+    "scalaflow",
+    "zavix"
+  ],
+  "tools": [
+    "browser"
+  ],
+  "inputs": [],
+  "outputs": []
+}

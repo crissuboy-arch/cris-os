@@ -1,0 +1,17 @@
+{
+  "name": "curriculum-builder",
+  "domain": "curriculo",
+  "title": "Curriculum Builder",
+  "description": "Monta e revisa currículos (produto Currículo Gratuito): estrutura, clareza e destaque de resultados.",
+  "version": "0.1.0",
+  "status": "scaffold",
+  "enabled": false,
+  "category": "curriculo",
+  "entry": "SKILL.md",
+  "agents": [
+    "curriculo"
+  ],
+  "tools": [],
+  "inputs": [],
+  "outputs": []
+}

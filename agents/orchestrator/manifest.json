@@ -1,0 +1,10 @@
+{
+  "name": "orchestrator",
+  "domain": "sistema",
+  "title": "Cris OS (Gerente)",
+  "description": "Gerente da equipe. Único que conversa com a Cris. Decide e delega; nunca executa.",
+  "enabled": true,
+  "delegate": false,
+  "status": "production",
+  "tools": []
+}

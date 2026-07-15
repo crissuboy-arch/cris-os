@@ -1,0 +1,12 @@
+{
+  "name": "pinklogic",
+  "domain": "pinklogic",
+  "keywords": ["pinklogic", "pink logic", "saas"],
+  "title": "PinkLogic",
+  "description": "Especialista em SaaS, sistemas, automações e IA (PinkLogic).",
+  "enabled": true,
+  "delegate": true,
+  "status": "draft",
+  "projects": ["PinkLogic"],
+  "tools": []
+}

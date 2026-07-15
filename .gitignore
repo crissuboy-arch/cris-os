@@ -1,0 +1,29 @@
+# ============================================================
+# CRIS OS - .gitignore
+# ============================================================
+
+# Segredos / configuração local
+.env
+
+# Banco de dados / dados gerados em tempo de execução
+data/*
+!data/.gitkeep
+logs/*
+!logs/.gitkeep
+backups/*
+!backups/.gitkeep
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.pytest_cache/
+
+# Sistema operacional / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

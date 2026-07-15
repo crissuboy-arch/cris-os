@@ -1,0 +1,17 @@
+{
+  "name": "zavix-product",
+  "domain": "zavix",
+  "title": "Zavix Product",
+  "description": "Operações de produto da loja Zavix.online: cadastro/revisão de produto, categorias, links e estoque (leitura primeiro).",
+  "version": "0.1.0",
+  "status": "scaffold",
+  "enabled": false,
+  "category": "zavix",
+  "entry": "SKILL.md",
+  "agents": [
+    "zavix"
+  ],
+  "tools": [],
+  "inputs": [],
+  "outputs": []
+}

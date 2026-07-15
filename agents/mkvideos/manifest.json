@@ -1,0 +1,12 @@
+{
+  "name": "mkvideos",
+  "domain": "conteudo",
+  "keywords": ["mkvideos", "mk videos", "vídeo", "video", "roteiro", "thumbnail"],
+  "title": "mkVideos",
+  "description": "Produção de vídeo a partir de um produto: roteiro, voz, thumbnail, vídeo e legenda.",
+  "enabled": true,
+  "delegate": true,
+  "status": "draft",
+  "projects": ["mkVideos"],
+  "tools": []
+}

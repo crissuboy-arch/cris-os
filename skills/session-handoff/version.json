@@ -1,0 +1,8 @@
+{
+  "version": "1.0.0",
+  "status": "production",
+  "changelog": [
+    { "version": "0.1.0", "date": "2026-06-30", "note": "Estrutura inicial (scaffold), sem implementacao." },
+    { "version": "1.0.0", "date": "2026-06-30", "note": "Primeira implementacao completa: save/resume com Memory (L1/L3) + Event Log; executor + testes unitarios." }
+  ]
+}
