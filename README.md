@@ -183,3 +183,14 @@ cris-os/
 - Memoria semantica e camada de cognicao
 
 Roadmap completo em [ROADMAP.md](ROADMAP.md). Arquitetura completa em [ARQUITETURA.md](ARQUITETURA.md).
+
+---
+
+## Status Atual
+
+- **CRIS OS v1.0** estavel.
+- Integracao NVIDIA AI concluida (router 8B + geracao 70B).
+- Telegram funcionando.
+- Fallback para Ollama ativo.
+- 82 testes, todos verdes.
+- Arquitetura congelada nesta versao.
