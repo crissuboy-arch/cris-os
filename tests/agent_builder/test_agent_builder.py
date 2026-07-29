@@ -14,7 +14,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import pytest
 from agent_builder import AgentBuilder, AgentConfig, AgentDefinition, AgentStatus, AgentStore, CapabilityBinding, DynamicAgent
+from agent_builder.models import MemoryConfig, PermissionConfig
+from core.contracts.agent import AgentContext
 from core.models import AgentResult, Task
+
+ROOT = Path(__file__).resolve().parent.parent.parent
 
 
 # ======================================================================
@@ -537,3 +541,564 @@ class TestAgentBuilderIntegration:
         assert "Nota do Builder" in result2.output
 
         builder.delete(defn.agent_id)
+
+
+# ======================================================================
+# Fase 3: bindings, context, memory, permissions, execution
+# ======================================================================
+
+
+class TestFase3Bindings:
+    """Cenarios de binding: fixed, input, context, previous_result."""
+
+    def test_binding_fixed_value(self):
+        """Binding com valor fixo — usa default_value."""
+        from agent_builder.models import BindingSource
+        agent_def = AgentDefinition(
+            agent_id="fixed-test", name="fixed-agent", version="1.0.0",
+            description="",
+            bindings=[CapabilityBinding(
+                keyword="eco", capability="demo.echo",
+                input_template={"message": "static"},
+                source=BindingSource.FIXED, default_value="valor fixo",
+            )],
+        )
+        agent = DynamicAgent(agent_def)
+        mock_api = MagicMock()
+        mock_api.execute.return_value = {"success": True, "echo": "ok"}
+        context = AgentContext(session="test", core_api=mock_api)
+        task = Task(agent="fixed-agent", instruction="eco qualquer coisa")
+
+        result = agent.handle(task, context)
+
+        assert result.success is True
+        call_params = mock_api.execute.call_args[0][1]
+        assert call_params["message"] == "valor fixo"
+
+    def test_binding_input_source(self):
+        """Binding com input — interpola {instruction}."""
+        from agent_builder.models import BindingSource
+        agent_def = AgentDefinition(
+            agent_id="input-test", name="input-agent", version="1.0.0",
+            description="",
+            bindings=[CapabilityBinding(
+                keyword="criar", capability="notes.create",
+                input_template={"title": "Nota: {instruction}", "content": "{instruction}"},
+                source=BindingSource.INPUT,
+            )],
+        )
+        agent = DynamicAgent(agent_def)
+        mock_api = MagicMock()
+        mock_api.execute.return_value = {"success": True, "id": "n1", "title": "Nota: criar X"}
+        context = AgentContext(session="test", core_api=mock_api)
+        task = Task(agent="input-agent", instruction="criar nota sobre projeto")
+
+        result = agent.handle(task, context)
+
+        assert result.success is True
+        call_params = mock_api.execute.call_args[0][1]
+        assert call_params["title"] == "Nota: criar nota sobre projeto"
+        assert call_params["content"] == "criar nota sobre projeto"
+
+    def test_binding_context_source(self):
+        """Binding com context — interpola {context.session}."""
+        from agent_builder.models import BindingSource
+        agent_def = AgentDefinition(
+            agent_id="ctx-test", name="ctx-agent", version="1.0.0",
+            description="",
+            bindings=[CapabilityBinding(
+                keyword="session", capability="demo.echo",
+                input_template={"message": "Session: {context.session}"},
+                source=BindingSource.CONTEXT,
+            )],
+        )
+        agent = DynamicAgent(agent_def)
+        mock_api = MagicMock()
+        mock_api.execute.return_value = {"success": True, "echo": "ok"}
+        context = AgentContext(session="telegram:12345", core_api=mock_api)
+        task = Task(agent="ctx-agent", instruction="session info")
+
+        result = agent.handle(task, context)
+
+        assert result.success is True
+        call_params = mock_api.execute.call_args[0][1]
+        assert "telegram:12345" in call_params["message"]
+
+    def test_context_absent(self):
+        """Context ausente — placeholders ficam vazios, nao crasha."""
+        from agent_builder.models import BindingSource
+        agent_def = AgentDefinition(
+            agent_id="ctx-absent", name="ctx-absent-agent", version="1.0.0",
+            description="",
+            bindings=[CapabilityBinding(
+                keyword="info", capability="demo.echo",
+                input_template={"message": "{context.session} - {context.missing.nested}"},
+                source=BindingSource.CONTEXT,
+            )],
+        )
+        agent = DynamicAgent(agent_def)
+        mock_api = MagicMock()
+        mock_api.execute.return_value = {"success": True, "echo": "ok"}
+        context = AgentContext(session="test-session", core_api=mock_api)
+        task = Task(agent="ctx-absent-agent", instruction="info")
+
+        result = agent.handle(task, context)
+
+        assert result.success is True
+        call_params = mock_api.execute.call_args[0][1]
+        assert "test-session" in call_params["message"]
+
+    def test_binding_previous_result(self):
+        """Binding com previous_result — interpola resultado anterior."""
+        from agent_builder.models import BindingSource
+        b1 = CapabilityBinding(
+            keyword="echo", capability="demo.echo",
+            input_template={"message": "{instruction}"},
+            source=BindingSource.INPUT, priority=100,
+        )
+        b2 = CapabilityBinding(
+            keyword="echo", capability="demo.echo",
+            input_template={"message": "Previous: {previous.output}"},
+            source=BindingSource.PREVIOUS_RESULT, priority=50,
+        )
+        agent_def = AgentDefinition(
+            agent_id="prev-test", name="prev-agent", version="1.0.0",
+            description="", bindings=[b1, b2],
+        )
+        agent = DynamicAgent(agent_def)
+        mock_api = MagicMock()
+        mock_api.execute.side_effect = [
+            {"success": True, "output": "first result"},
+            {"success": True, "echo": "ok"},
+        ]
+        context = AgentContext(session="test", core_api=mock_api)
+        task = Task(agent="prev-agent", instruction="echo test")
+
+        result = agent.handle(task, context)
+        assert result.success is True
+
+
+class TestFase3Memory:
+    """Cenarios de memoria: session, agent, project, read/write."""
+
+    def test_memory_session_read(self):
+        """Memoria de sessao — le conversation e temporary."""
+        from agent_builder.models import MemoryType
+        agent_def = AgentDefinition(
+            agent_id="mem-session", name="mem-session-agent", version="1.0.0",
+            description="",
+            memory=MemoryConfig(memory_type=MemoryType.SESSION, read_enabled=True),
+            bindings=[CapabilityBinding(keyword="echo", capability="demo.echo")],
+        )
+        agent = DynamicAgent(agent_def)
+        context = AgentContext(
+            session="test",
+            conversation=[{"role": "user", "content": "ola"}, {"role": "assistant", "content": "oi"}],
+            temporary=["reuniao as 14h"],
+        )
+        task = Task(agent="mem-session-agent", instruction="echo test")
+
+        result = agent.handle(task, context)
+        assert result.success is True
+
+    def test_memory_agent_write(self):
+        """Memoria do agente — escreve resultado apos execucao."""
+        from agent_builder.models import MemoryType
+        agent_def = AgentDefinition(
+            agent_id="mem-write", name="mem-write-agent", version="1.0.0",
+            description="",
+            memory=MemoryConfig(memory_type=MemoryType.AGENT, write_enabled=True),
+            bindings=[CapabilityBinding(keyword="echo", capability="demo.echo")],
+        )
+        agent = DynamicAgent(agent_def)
+        mock_api = MagicMock()
+        mock_api.execute.return_value = {"success": True, "echo": "resultado"}
+        mock_api.set_config = MagicMock()
+        context = AgentContext(session="test", core_api=mock_api)
+        task = Task(agent="mem-write-agent", instruction="echo test")
+
+        result = agent.handle(task, context)
+
+        assert result.success is True
+        mock_api.set_config.assert_called_once()
+        call_args = mock_api.set_config.call_args[0]
+        assert "memory.mem-write-agent.last_result" == call_args[0]
+
+    def test_memory_disabled_no_write(self):
+        """Memoria desabilitada — nao escreve nada."""
+        from agent_builder.models import MemoryType
+        agent_def = AgentDefinition(
+            agent_id="mem-disabled", name="mem-disabled-agent", version="1.0.0",
+            description="",
+            memory=MemoryConfig(memory_type=MemoryType.NONE),
+            bindings=[CapabilityBinding(keyword="echo", capability="demo.echo")],
+        )
+        agent = DynamicAgent(agent_def)
+        mock_api = MagicMock()
+        mock_api.execute.return_value = {"success": True, "echo": "ok"}
+        mock_api.set_config = MagicMock()
+        context = AgentContext(session="test", core_api=mock_api)
+        task = Task(agent="mem-disabled-agent", instruction="echo test")
+
+        result = agent.handle(task, context)
+
+        assert result.success is True
+        mock_api.set_config.assert_not_called()
+
+    def test_memory_project_scope(self):
+        """Memoria de projeto — scope de projetos configurado."""
+        from agent_builder.models import MemoryType
+        agent_def = AgentDefinition(
+            agent_id="mem-proj", name="mem-proj-agent", version="1.0.0",
+            description="",
+            memory=MemoryConfig(
+                memory_type=MemoryType.PROJECT,
+                scope=["projeto-a", "projeto-b"],
+                read_enabled=True,
+            ),
+            bindings=[CapabilityBinding(keyword="echo", capability="demo.echo")],
+        )
+        agent = DynamicAgent(agent_def)
+        from core.models import KnowledgeItem
+        proj_items = [
+            KnowledgeItem(type="note", title="Nota A", content="Conteudo A"),
+            KnowledgeItem(type="note", title="Nota B", content="Conteudo B"),
+        ]
+        context = AgentContext(
+            session="test",
+            project_memory=proj_items,
+            core_api=MagicMock(execute=MagicMock(return_value={"success": True, "echo": "ok"})),
+        )
+        task = Task(agent="mem-proj-agent", instruction="echo test")
+
+        result = agent.handle(task, context)
+        assert result.success is True
+
+
+class TestFase3Permissions:
+    """Cenarios de permissao: allowed, denied, confirmation required."""
+
+    def test_permission_allowed(self):
+        """Permissao permitida — capability na allowlist executa."""
+        agent_def = AgentDefinition(
+            agent_id="perm-ok", name="perm-ok-agent", version="1.0.0",
+            description="",
+            permissions=PermissionConfig(allowed_capabilities=["notes.create"]),
+            bindings=[CapabilityBinding(keyword="criar", capability="notes.create")],
+        )
+        agent = DynamicAgent(agent_def)
+        mock_api = MagicMock()
+        mock_api.execute.return_value = {"success": True, "id": "n1"}
+        context = AgentContext(session="test", core_api=mock_api)
+        task = Task(agent="perm-ok-agent", instruction="criar nota")
+
+        result = agent.handle(task, context)
+        assert result.success is True
+        mock_api.execute.assert_called_once()
+
+    def test_permission_denied(self):
+        """Permissao negada — capability na denylist retorna erro."""
+        agent_def = AgentDefinition(
+            agent_id="perm-deny", name="perm-deny-agent", version="1.0.0",
+            description="",
+            permissions=PermissionConfig(denied_capabilities=["notes.create"]),
+            bindings=[CapabilityBinding(keyword="criar", capability="notes.create")],
+        )
+        agent = DynamicAgent(agent_def)
+        mock_api = MagicMock()
+        context = AgentContext(session="test", core_api=mock_api)
+        task = Task(agent="perm-deny-agent", instruction="criar nota")
+
+        result = agent.handle(task, context)
+        assert result.success is False
+        assert "negada" in result.output.lower()
+        mock_api.execute.assert_not_called()
+
+    def test_permission_confirmation_required(self):
+        """Confirmacao obrigatoria — capability exige confirmacao."""
+        agent_def = AgentDefinition(
+            agent_id="perm-confirm", name="perm-confirm-agent", version="1.0.0",
+            description="",
+            permissions=PermissionConfig(require_confirmation=["notes.create"]),
+            bindings=[CapabilityBinding(keyword="criar", capability="notes.create")],
+        )
+        agent = DynamicAgent(agent_def)
+        mock_api = MagicMock()
+        context = AgentContext(session="test", core_api=mock_api)
+        task = Task(agent="perm-confirm-agent", instruction="criar nota")
+
+        result = agent.handle(task, context)
+        assert result.success is False
+        assert "confirmacao" in result.output.lower()
+        assert result.metadata.get("confirmation_required") is True
+        mock_api.execute.assert_not_called()
+
+    def test_permission_wildcard_allow(self):
+        """Wildcard allow — 'notes.*' permite todas notes.*."""
+        agent_def = AgentDefinition(
+            agent_id="perm-wild", name="perm-wild-agent", version="1.0.0",
+            description="",
+            permissions=PermissionConfig(allowed_capabilities=["notes.*"]),
+            bindings=[CapabilityBinding(keyword="criar", capability="notes.create")],
+        )
+        agent = DynamicAgent(agent_def)
+        mock_api = MagicMock()
+        mock_api.execute.return_value = {"success": True, "id": "n1"}
+        context = AgentContext(session="test", core_api=mock_api)
+        task = Task(agent="perm-wild-agent", instruction="criar nota")
+
+        result = agent.handle(task, context)
+        assert result.success is True
+
+
+class TestFase3CapabilityErrors:
+    """Cenarios de erro: capability inexistente, ferramenta HTTP/MCP."""
+
+    def test_capability_not_found(self):
+        """Capability inexistente — retorna erro claro."""
+        agent_def = AgentDefinition(
+            agent_id="cap-missing", name="cap-missing-agent", version="1.0.0",
+            description="",
+            bindings=[CapabilityBinding(keyword="test", capability="nonexistent.cap")],
+        )
+        agent = DynamicAgent(agent_def)
+        mock_api = MagicMock()
+        mock_api.registry = MagicMock()
+        mock_api.registry.resolve.return_value = None
+        context = AgentContext(session="test", core_api=mock_api)
+        task = Task(agent="cap-missing-agent", instruction="test something")
+
+        result = agent.handle(task, context)
+        assert result.success is False
+        assert "indisponivel" in result.output.lower() or "inexistente" in result.output.lower()
+
+    def test_http_tool_config(self):
+        """Ferramenta HTTP configurada — registra no tools config."""
+        from agent_builder.models import ToolsConfig
+        agent_def = AgentDefinition(
+            agent_id="http-tool", name="http-tool-agent", version="1.0.0",
+            description="",
+            tools=ToolsConfig(http=[{"name": "weather", "url": "https://api.weather.com", "method": "GET"}]),
+            bindings=[CapabilityBinding(keyword="clima", capability="demo.echo")],
+        )
+        d = agent_def.to_dict()
+        assert len(d["tools"]["http"]) == 1
+        assert d["tools"]["http"][0]["name"] == "weather"
+
+        restored = AgentDefinition.from_dict(d)
+        assert len(restored.tools.http) == 1
+        assert restored.tools.http[0]["name"] == "weather"
+
+    def test_mcp_tool_config(self):
+        """Ferramenta MCP configurada — registra no tools config."""
+        from agent_builder.models import ToolsConfig
+        agent_def = AgentDefinition(
+            agent_id="mcp-tool", name="mcp-tool-agent", version="1.0.0",
+            description="",
+            tools=ToolsConfig(mcp=[{"name": "github", "server": "github-mcp", "tool": "list_repos"}]),
+            bindings=[CapabilityBinding(keyword="repo", capability="demo.echo")],
+        )
+        d = agent_def.to_dict()
+        assert len(d["tools"]["mcp"]) == 1
+        assert d["tools"]["mcp"][0]["server"] == "github-mcp"
+
+        restored = AgentDefinition.from_dict(d)
+        assert len(restored.tools.mcp) == 1
+        assert restored.tools.mcp[0]["tool"] == "list_repos"
+
+
+class TestFase3Instructions:
+    """System prompt montado a partir de AgentInstructions."""
+
+    def test_system_prompt_basic(self):
+        """Prompt basico com role + objective."""
+        from agent_builder.models import AgentInstructions
+        agent_def = AgentDefinition(
+            agent_id="prompt-test", name="prompt-agent", version="1.0.0",
+            description="",
+            instructions=AgentInstructions(
+                role="Assistente de notas",
+                objective="Criar e gerenciar notas",
+            ),
+            bindings=[],
+        )
+        agent = DynamicAgent(agent_def)
+        prompt = agent._build_system_prompt()
+        assert "Assistente de notas" in prompt
+        assert "Criar e gerenciar notas" in prompt
+
+    def test_system_prompt_rules_restrictions(self):
+        """Prompt com regras e restricoes."""
+        from agent_builder.models import AgentInstructions
+        agent_def = AgentDefinition(
+            agent_id="rules-test", name="rules-agent", version="1.0.0",
+            description="",
+            instructions=AgentInstructions(
+                rules=["Sempre ser educado", "Nao inventar dados"],
+                restrictions=["Nao acessar internet", "Nao executar codigo"],
+                output_format="JSON",
+            ),
+            bindings=[],
+        )
+        agent = DynamicAgent(agent_def)
+        prompt = agent._build_system_prompt()
+        assert "Regras:" in prompt
+        assert "1. Sempre ser educado" in prompt
+        assert "Restricoes:" in prompt
+        assert "1. Nao acessar internet" in prompt
+        assert "JSON" in prompt
+
+    def test_system_prompt_custom(self):
+        """Prompt customizado."""
+        from agent_builder.models import AgentInstructions
+        agent_def = AgentDefinition(
+            agent_id="custom-test", name="custom-agent", version="1.0.0",
+            description="",
+            instructions=AgentInstructions(custom_prompt="Voce e o melhor assistente."),
+            bindings=[],
+        )
+        agent = DynamicAgent(agent_def)
+        prompt = agent._build_system_prompt()
+        assert "Voce e o melhor assistente." in prompt
+
+
+class TestFase3ExecutionLog:
+    """Testes do ExecutionLog para observabilidade."""
+
+    def test_create_and_retrieve(self):
+        """Criar registro e recuperar."""
+        from agent_builder.execution_log import StudioExecutionLog
+        log = StudioExecutionLog()
+        record = log.create_record("agent-1", "test-agent", "echo hello")
+        assert record.id.startswith("exec-")
+        assert record.agent_name == "test-agent"
+        assert record.status == "running"
+        record.status = "success"
+        record.duration_ms = 42.5
+        log.add(record)
+
+        retrieved = log.get(record.id)
+        assert retrieved is not None
+        assert retrieved.status == "success"
+        assert retrieved.duration_ms == 42.5
+
+    def test_stats(self):
+        """Metricas de execucao."""
+        from agent_builder.execution_log import StudioExecutionLog
+        log = StudioExecutionLog()
+        for i in range(5):
+            r = log.create_record(f"a-{i}", "agent", f"instr {i}")
+            r.status = "success" if i < 3 else "error"
+            r.duration_ms = 10.0 * (i + 1)
+            log.add(r)
+
+        stats = log.stats()
+        assert stats["total"] == 5
+        assert stats["success"] == 3
+        assert stats["error"] == 2
+        assert stats["avg_duration_ms"] > 0
+
+    def test_list_limit(self):
+        """List com limite."""
+        from agent_builder.execution_log import StudioExecutionLog
+        log = StudioExecutionLog()
+        for i in range(10):
+            r = log.create_record("a", "agent", f"instr {i}")
+            r.status = "success"
+            log.add(r)
+
+        result = log.list_all(limit=3)
+        assert len(result) == 3
+
+
+class TestFase3FullEndToEnd:
+    """Execucao completa criada pelo Studio — ponta a ponta."""
+
+    def test_full_studio_flow(self):
+        """Cria -> configura instructions/memory/permissions -> publica -> executa -> log."""
+        from agent_builder.models import AgentInstructions, MemoryConfig, PermissionConfig, ToolsConfig, MemoryType
+        from agent_builder.execution_log import StudioExecutionLog
+
+        with tempfile.TemporaryDirectory() as td:
+            store = AgentStore(td)
+            mock_reg = MagicMock()
+            mock_reg._items = {}
+            mock_reg.register = lambda item: mock_reg._items.__setitem__(item.name, item)
+            mock_reg.get = lambda name: mock_reg._items.get(name)
+
+            builder = AgentBuilder(store=store, agent_registry=mock_reg)
+
+            # 1. Create
+            defn = builder.create(
+                "studio-agent",
+                "Agente completo do Studio",
+                bindings=[CapabilityBinding(keyword="echo", capability="demo.echo")],
+            )
+            assert defn.status == AgentStatus.DRAFT
+
+            # 2. Update with Fase 3 fields
+            updated = builder.update(
+                defn.agent_id,
+                instructions=AgentInstructions(
+                    role="Assistente de teste",
+                    objective="Testar o fluxo completo",
+                    rules=["Ser preciso"],
+                    restrictions=["Nao inventar dados"],
+                    output_format="Texto simples",
+                ),
+                memory=MemoryConfig(memory_type=MemoryType.SESSION, read_enabled=True),
+                permissions=PermissionConfig(allowed_capabilities=["demo.echo"]),
+                tools=ToolsConfig(internal=["weather"], http=[{"name": "api", "url": "http://x"}]),
+            )
+            assert updated.instructions.role == "Assistente de teste"
+            assert updated.memory.memory_type == MemoryType.SESSION
+            assert updated.permissions.allowed_capabilities == ["demo.echo"]
+            assert len(updated.tools.http) == 1
+
+            # 3. Publish
+            published = builder.publish(defn.agent_id)
+            assert published.status == AgentStatus.PUBLISHED
+
+            # 4. Execute via runtime
+            from core.agent import AgentRuntime
+            from core.capability import CapabilityRegistry
+            from core.events import InProcessEventBus, InMemoryEventLog
+            from core.plugins.loader import PluginLoader
+
+            cap_reg = CapabilityRegistry()
+            event_log = InMemoryEventLog()
+            bus = InProcessEventBus(event_log=event_log)
+            loader = PluginLoader(registry=cap_reg, event_bus=bus, plugins_dir=str(ROOT / "plugins"))
+            loader.load_all()
+            loader.start_all()
+
+            runtime = AgentRuntime(agent_registry=mock_reg, plugin_loader=loader, event_bus=bus)
+            result = runtime.execute("studio-agent", "echo teste completo", session="studio:test")
+            assert result.success is True
+
+            # 5. Verify execution log metadata
+            exec_log = result.metadata.get("execution_log", {})
+            assert "echo" in exec_log.get("bindings_attempted", [])
+            assert len(exec_log.get("capabilities_called", [])) > 0
+
+            # 6. Verify system prompt was built
+            assert result.metadata.get("system_prompt") != ""
+
+            # 7. Log recording
+            log = StudioExecutionLog()
+            record = log.create_record(defn.agent_id, defn.name, "echo teste completo")
+            record.status = "success"
+            record.duration_ms = 15.0
+            log.add(record)
+            assert log.stats()["total"] == 1
+
+            # 8. Verify manifest serialization roundtrip
+            manifest = published.to_dict()
+            restored = AgentDefinition.from_dict(manifest)
+            assert restored.instructions.role == "Assistente de teste"
+            assert restored.memory.memory_type == MemoryType.SESSION
+            assert restored.permissions.allowed_capabilities == ["demo.echo"]
+            assert len(restored.tools.http) == 1
+            assert len(restored.tools.mcp) == 0
+
+            builder.delete(defn.agent_id)
