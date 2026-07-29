@@ -310,4 +310,53 @@ export const studioApi = {
       method: 'POST',
       body: JSON.stringify(data),
     }),
+
+  // Auth
+  login: (username: string, password: string) =>
+    request<{ success: boolean; token: string; user: any }>('/studio/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ username, password }),
+    }),
+  logout: () => request<any>('/studio/auth/logout', { method: 'POST' }),
+  authMe: () => request<any>('/studio/auth/me'),
+  listUsers: () => request<any[]>('/studio/auth/users'),
+  createUser: (data: { username: string; password: string; role?: string; display_name?: string }) =>
+    request<any>('/studio/auth/users', { method: 'POST', body: JSON.stringify(data) }),
+  deleteUser: (username: string) =>
+    request<any>(`/studio/auth/users/${username}`, { method: 'DELETE' }),
+
+  // MCP
+  mcpServers: () => request<any[]>('/studio/mcp/servers'),
+  registerMcpServer: (data: any) =>
+    request<any>('/studio/mcp/servers', { method: 'POST', body: JSON.stringify(data) }),
+  unregisterMcpServer: (name: string) =>
+    request<any>(`/studio/mcp/servers/${name}`, { method: 'DELETE' }),
+  discoverMcpTools: (server?: string) =>
+    request<any>('/studio/mcp/discover' + (server ? `?server=${server}` : ''), { method: 'POST' }),
+  mcpTools: () => request<any[]>('/studio/mcp/tools'),
+  executeMcpTool: (toolName: string, params: any = {}) =>
+    request<any>('/studio/mcp/execute', { method: 'POST', body: JSON.stringify({ tool_name: toolName, params }) }),
+
+  // Export / Import
+  exportAgent: (id: string) => request<any>(`/studio/agents/${id}/export`),
+  importAgent: (data: any) =>
+    request<any>('/studio/agents/import', { method: 'POST', body: JSON.stringify({ data }) }),
+
+  // Versioning
+  versions: (id: string) => request<any>(`/studio/agents/${id}/versions`),
+  version: (id: string, v: string) => request<any>(`/studio/agents/${id}/versions/${v}`),
+  versionDiff: (id: string, from: string, to: string) =>
+    request<any>(`/studio/agents/${id}/diff?from_version=${from}&to_version=${to}`),
+  restoreVersion: (id: string, version: string) =>
+    request<any>(`/studio/agents/${id}/restore/${version}`, { method: 'POST' }),
+
+  // Notifications
+  notificationConfig: () => request<any>('/studio/notifications/config'),
+  configureNotifications: (token: string, chatId: string) =>
+    request<any>('/studio/notifications/config', {
+      method: 'POST',
+      body: JSON.stringify({ token, chat_id: chatId }),
+    }),
+  notificationHistory: (limit = 50) => request<any[]>(`/studio/notifications/history?limit=${limit}`),
+  notificationStats: () => request<any>('/studio/notifications/stats'),
 }

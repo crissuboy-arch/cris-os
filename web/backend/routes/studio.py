@@ -822,3 +822,326 @@ def write_project_memory(project: str, req: ProjectMemoryWrite):
     if ok:
         return {"written": True, "project": project}
     raise HTTPException(status_code=500, detail="Falha ao escrever na memoria do projeto")
+
+
+# ======================================================================
+# FASE 5: Auth, MCP, Export/Import, Versioning, Notifications
+# ======================================================================
+
+# --- Authentication ---
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+class CreateUserRequest(BaseModel):
+    username: str
+    password: str
+    role: str = "editor"
+    display_name: str = ""
+
+
+class ChangePasswordRequest(BaseModel):
+    new_password: str
+
+
+def _get_auth() -> Any:
+    from agent_builder.auth import get_auth
+    return get_auth()
+
+
+def _require_auth(request: Any, action: str = "read") -> dict:
+    """Extrai e valida token. Retorna dados do usuario."""
+    from agent_builder.auth import get_auth
+    auth = get_auth()
+    token = auth.extract_token(getattr(request, "headers", {}).get("authorization", ""))
+    if token is None:
+        # Try query param
+        token = getattr(request, "query_params", {}).get("token", "")
+    if not token:
+        raise HTTPException(status_code=401, detail="Autenticacao necessaria")
+    user = auth.verify(token)
+    if user is None:
+        raise HTTPException(status_code=401, detail="Token invalido ou expirado")
+    if not auth.check_permission(user["role"], action):
+        raise HTTPException(status_code=403, detail="Permissao insuficiente")
+    return user
+
+
+@router.post("/studio/auth/login")
+def login(req: LoginRequest):
+    auth = _get_auth()
+    result = auth.login(req.username, req.password)
+    if not result.get("success"):
+        raise HTTPException(status_code=401, detail=result.get("error", "Falha no login"))
+    return result
+
+
+@router.post("/studio/auth/logout")
+def logout(request: Any):
+    auth = _get_auth()
+    token = auth.extract_token(getattr(request, "headers", {}).get("authorization", ""))
+    if token:
+        auth.logout(token)
+    return {"logged_out": True}
+
+
+@router.get("/studio/auth/me")
+def auth_me(request: Any):
+    user = _require_auth(request)
+    return user
+
+
+@router.get("/studio/auth/users")
+def list_users(request: Any):
+    _require_auth(request, "manage_users")
+    auth = _get_auth()
+    return auth.list_users()
+
+
+@router.post("/studio/auth/users")
+def create_user(request: Any, req: CreateUserRequest):
+    _require_auth(request, "manage_users")
+    auth = _get_auth()
+    result = auth.create_user(req.username, req.password, req.role, req.display_name)
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail=result.get("error"))
+    return result
+
+
+@router.delete("/studio/auth/users/{username}")
+def delete_user(request: Any, username: str):
+    _require_auth(request, "manage_users")
+    auth = _get_auth()
+    if not auth.delete_user(username):
+        raise HTTPException(status_code=400, detail="Nao foi possivel remover o usuario")
+    return {"deleted": True}
+
+
+@router.post("/studio/auth/change-password")
+def change_password(request: Any, req: ChangePasswordRequest):
+    user = _require_auth(request)
+    auth = _get_auth()
+    auth.change_password(user["username"], req.new_password)
+    return {"changed": True}
+
+
+# --- MCP ---
+
+class McpServerRegister(BaseModel):
+    name: str
+    command: str
+    args: list[str] = []
+    env: dict[str, str] = {}
+    timeout_s: int = 30
+    enabled: bool = True
+
+
+class McpExecuteRequest(BaseModel):
+    tool_name: str
+    params: dict = {}
+
+
+def _get_mcp() -> Any:
+    from agent_builder.mcp_executor import get_mcp_executor
+    return get_mcp_executor()
+
+
+@router.get("/studio/mcp/servers")
+def list_mcp_servers():
+    return _get_mcp().list_servers()
+
+
+@router.post("/studio/mcp/servers")
+def register_mcp_server(req: McpServerRegister):
+    mcp = _get_mcp()
+    try:
+        server = mcp.register_server(req.model_dump())
+        return {"registered": True, "name": server.name}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.delete("/studio/mcp/servers/{name}")
+def unregister_mcp_server(name: str):
+    mcp = _get_mcp()
+    if mcp.unregister_server(name):
+        return {"deleted": True}
+    raise HTTPException(status_code=404, detail="Servidor MCP nao encontrado")
+
+
+@router.post("/studio/mcp/discover")
+def discover_mcp_tools(server: str | None = None):
+    mcp = _get_mcp()
+    tools = mcp.discover_tools(server)
+    return {"discovered": len(tools), "tools": [
+        {"name": t.name, "server": t.server_name, "description": t.description}
+        for t in tools
+    ]}
+
+
+@router.get("/studio/mcp/tools")
+def list_mcp_tools():
+    return _get_mcp().list_tools()
+
+
+@router.post("/studio/mcp/execute")
+def execute_mcp_tool(req: McpExecuteRequest):
+    mcp = _get_mcp()
+    result = mcp.execute(req.tool_name, req.params)
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail=result.get("error", "Falha MCP"))
+    return result
+
+
+# --- Export / Import ---
+
+@router.get("/studio/agents/{agent_id}/export")
+def export_agent(request: Any, agent_id: str):
+    """Exporta agente como JSON completo."""
+    _require_auth(request)
+    builder = _get_builder()
+    defn = builder.get(agent_id)
+    if defn is None:
+        raise HTTPException(status_code=404, detail="Agente nao encontrado")
+    export_data = defn.to_dict()
+    export_data["_export_version"] = "1.0"
+    export_data["_exported_at"] = time.time()
+    return export_data
+
+
+class ImportAgentRequest(BaseModel):
+    data: dict
+
+
+@router.post("/studio/agents/import", status_code=201)
+def import_agent(request: Any, req: ImportAgentRequest):
+    """Importa agente de JSON."""
+    _require_auth(request, "write")
+    builder = _get_builder()
+    try:
+        from agent_builder.models import AgentDefinition
+        defn = AgentDefinition.from_dict(req.data)
+        # Check for name conflict
+        existing = builder.get_by_name(defn.name)
+        if existing:
+            defn.name = f"{defn.name} (importado)"
+            defn.agent_id = ""  # Will be regenerated
+        created = builder.create(
+            name=defn.name,
+            description=defn.description,
+            bindings=defn.bindings,
+        )
+        # Update additional fields
+        builder.update(
+            created.agent_id,
+            instructions=defn.instructions,
+            memory=defn.memory,
+            permissions=defn.permissions,
+            tools=defn.tools,
+            metadata=defn.metadata,
+        )
+        return {"imported": True, "agent_id": created.agent_id, "name": defn.name}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Falha ao importar: {e}")
+
+
+# --- Versioning ---
+
+@router.get("/studio/agents/{agent_id}/versions")
+def list_versions(request: Any, agent_id: str):
+    _require_auth(request)
+    builder = _get_builder()
+    versions = builder.list_versions(agent_id)
+    return {"versions": versions}
+
+
+@router.get("/studio/agents/{agent_id}/versions/{version}")
+def get_version(request: Any, agent_id: str, version: str):
+    _require_auth(request)
+    builder = _get_builder()
+    defn = builder.get_version(agent_id, version)
+    if defn is None:
+        raise HTTPException(status_code=404, detail="Versao nao encontrada")
+    return defn.to_dict()
+
+
+@router.get("/studio/agents/{agent_id}/diff")
+def version_diff(request: Any, agent_id: str, from_version: str, to_version: str):
+    """Calcula diff entre duas versoes."""
+    _require_auth(request)
+    builder = _get_builder()
+    old = builder.get_version(agent_id, from_version)
+    new = builder.get_version(agent_id, to_version)
+    if old is None or new is None:
+        raise HTTPException(status_code=404, detail="Uma ou ambas as versoes nao encontradas")
+    from agent_builder.version_diff import compute_diff, format_diff
+    changes = compute_diff(old.to_dict(), new.to_dict())
+    return {
+        "from": from_version,
+        "to": to_version,
+        "changes": changes,
+        "summary": format_diff(changes),
+        "total_changes": len(changes),
+    }
+
+
+@router.post("/studio/agents/{agent_id}/restore/{version}")
+def restore_version(request: Any, agent_id: str, version: str):
+    """Restaura uma versao anterior como novo draft."""
+    _require_auth(request, "write")
+    builder = _get_builder()
+    defn = builder.get_version(agent_id, version)
+    if defn is None:
+        raise HTTPException(status_code=404, detail="Versao nao encontrada")
+    # Update current agent with version data
+    updated = builder.update(
+        agent_id,
+        name=defn.name,
+        description=defn.description,
+        bindings=defn.bindings,
+        instructions=defn.instructions,
+        memory=defn.memory,
+        permissions=defn.permissions,
+        tools=defn.tools,
+    )
+    return {"restored": True, "version": version, "agent": updated.to_dict() if updated else {}}
+
+
+# --- Notifications ---
+
+def _get_notifier() -> Any:
+    from agent_builder.notifier import get_notifier
+    return get_notifier()
+
+
+class NotificationConfig(BaseModel):
+    token: str
+    chat_id: str
+
+
+@router.get("/studio/notifications/config")
+def notification_config():
+    notifier = _get_notifier()
+    return {"enabled": notifier.enabled}
+
+
+@router.post("/studio/notifications/config")
+def configure_notifications(request: Any, req: NotificationConfig):
+    _require_auth(request, "manage_settings")
+    notifier = _get_notifier()
+    notifier.configure(req.token, req.chat_id)
+    return {"configured": True, "enabled": notifier.enabled}
+
+
+@router.get("/studio/notifications/history")
+def notification_history(request: Any, limit: int = 50):
+    _require_auth(request)
+    notifier = _get_notifier()
+    return notifier.list_history(limit)
+
+
+@router.get("/studio/notifications/stats")
+def notification_stats():
+    return _get_notifier().stats()
