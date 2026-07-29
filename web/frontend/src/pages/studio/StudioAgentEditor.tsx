@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   Activity, AlertCircle, ArrowLeft, CheckCircle, FileJson, ListChecks,
-  Play, Rocket, Save, Undo2,
+  Play, Rocket, Save, Undo2, Eye,
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import {
@@ -20,10 +20,11 @@ import SectionBindings from './editor/sections/SectionBindings'
 import SectionPermissions from './editor/sections/SectionPermissions'
 import ManifestPreview from './editor/ManifestPreview'
 import ValidationPanel from './editor/ValidationPanel'
+import PromptPreview from './editor/PromptPreview'
 import { emptyForm, formToManifest, formToPayload, type AgentForm } from './editor/types'
 import { hasErrors, issuesBySection, validateForm, type ValidationIssue } from './editor/validation'
 
-type RightTab = 'manifest' | 'validacao' | 'resumo'
+type RightTab = 'manifest' | 'prompt' | 'validacao' | 'resumo'
 
 export default function StudioAgentEditor() {
   const { id } = useParams<{ id: string }>()
@@ -353,6 +354,7 @@ export default function StudioAgentEditor() {
           <div className="mb-3 flex gap-1" role="tablist" aria-label="Painel lateral">
             {([
               { id: 'manifest', label: 'Manifest', icon: FileJson },
+              { id: 'prompt', label: 'Prompt', icon: Eye },
               { id: 'validacao', label: 'Validação', icon: ListChecks },
               { id: 'resumo', label: 'Resumo', icon: CheckCircle },
             ] as Array<{ id: RightTab; label: string; icon: any }>).map(t => (
@@ -375,6 +377,7 @@ export default function StudioAgentEditor() {
           </div>
           <div className="max-h-[70vh] overflow-y-auto">
             {rightTab === 'manifest' && <ManifestPreview manifest={manifest} hasErrors={errorCount > 0} />}
+            {rightTab === 'prompt' && <PromptPreview form={form} agentName={form.name} description={form.description} />}
             {rightTab === 'validacao' && <ValidationPanel issues={issues} onGoToSection={goToSection} />}
             {rightTab === 'resumo' && (
               <div className="space-y-2 text-sm">
