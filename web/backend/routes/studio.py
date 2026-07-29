@@ -172,6 +172,25 @@ class ExecuteAgentRequest(BaseModel):
 
 
 # ----------------------------------------------------------------------
+# Templates de Agentes
+# ----------------------------------------------------------------------
+
+@router.get("/studio/templates")
+def list_templates():
+    from agent_builder.templates import get_templates
+    return get_templates()
+
+
+@router.get("/studio/templates/{template_id}")
+def get_template(template_id: str):
+    from agent_builder.templates import get_template as _get_template
+    t = _get_template(template_id)
+    if t is None:
+        raise HTTPException(status_code=404, detail="Template nao encontrado")
+    return t
+
+
+# ----------------------------------------------------------------------
 # Agentes: CRUD + ciclo de vida
 # ----------------------------------------------------------------------
 

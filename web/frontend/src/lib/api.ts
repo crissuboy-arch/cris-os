@@ -298,7 +298,50 @@ export interface StudioConfirmation {
   notes: string
 }
 
+export interface StudioAgentTemplate {
+  id: string
+  name: string
+  description: string
+  icon: string
+  instructions: {
+    role?: string
+    objective?: string
+    rules?: string[]
+    restrictions?: string[]
+    output_format?: string
+    custom_prompt?: string
+  }
+  memory?: {
+    memory_type?: string
+    scope?: string[]
+    read_enabled?: boolean
+    write_enabled?: boolean
+    project?: string
+  }
+  permissions?: {
+    allowed_capabilities?: string[]
+    denied_capabilities?: string[]
+    require_confirmation?: string[]
+  }
+  tools?: {
+    internal?: string[]
+    http?: Array<Record<string, any>>
+    mcp?: Array<Record<string, any>>
+  }
+  bindings?: Array<{
+    keyword: string
+    capability: string
+    input_template: Record<string, string>
+    description?: string
+    priority?: number
+  }>
+}
+
 export const studioApi = {
+  // Templates
+  templates: () => request<StudioAgentTemplate[]>('/studio/templates'),
+  template: (id: string) => request<StudioAgentTemplate>(`/studio/templates/${id}`),
+
   list: () => request<StudioAgent[]>('/studio/agents'),
   get: (id: string) => request<StudioAgent>(`/studio/agents/${id}`),
   create: (name: string, description = '') =>
