@@ -33,9 +33,9 @@ automatizando rotina, projetos e decisões — e crescer por anos sem reescrever
 ## Orientação para quem trabalha aqui (Cris ou Claude Code)
 - **Rodar:** `pip install -r requirements.txt` → `ollama serve` (modelo com
   tool-calling, ex.: `llama3.1`) → `python main.py`.
-- **Validar sem subir nada:** `python tests/test_smoke.py`.
+- **Validar sem subir nada:** `python -m pytest tests/agent_builder/`.
 - **Onde paramos:** [memory.md](memory.md) · **auditoria:** [OS-AUDIT.md](OS-AUDIT.md).
-- **Foco da Fase 1:** Secretária IA via Telegram + Ollama + Orquestrador.
+- **Foco atual:** CRIS OS Studio v0.6.0 (interface visual completa).
 
 ## As 6 camadas (modelo os-coach adaptado ao CRIS OS)
 1. **Identity** → este arquivo.
@@ -48,3 +48,58 @@ automatizando rotina, projetos e decisões — e crescer por anos sem reescrever
 > As camadas aqui são uma **camada de governança humana** sobre o sistema Python
 > que roda de verdade. Elas organizam identidade, conhecimento e regras — **não
 > substituem** o runtime (núcleo em `core/`, memória em `data/cris_os.db`).
+
+## CRIS OS Studio (v0.6.0)
+Interface visual completa para criar, configurar e testar agentes sem escrever codigo.
+
+### Funcionalidades
+- Dashboard com metricas e status dos agentes
+- Editor visual de instructions, memory, permissions, tools
+- System Prompt Preview em tempo real
+- Agent Playground para teste interativo
+- 5 templates de agente para criacao rapida
+- Autenticacao JWT com gestao de usuarios
+- Export/Import de agentes
+- Versioning com diff visual
+- MCP Integration via stdio
+- Notifications via Telegram
+- Executive Dashboard com graficos (recharts)
+
+### Estrutura
+```
+agent_builder/    # Backend: AgentBuilder, DynamicAgent, Store, API
+web/
+  backend/        # FastAPI routes
+  frontend/       # React + TypeScript + Vite + Tailwind
+```
+
+### Como rodar
+```powershell
+# Backend
+cd web/backend
+pip install -r requirements.txt
+python -m uvicorn routes.studio:app --reload --port 8000
+
+# Frontend
+cd web/frontend
+npm install
+npm run dev
+```
+
+### Credenciais padrao
+| Usuario | Senha | Permissao |
+|---------|-------|-----------|
+| admin | admin123 | admin |
+| editor | editor123 | editor |
+| viewer | viewer123 | viewer |
+
+### Tags
+- `studio-phase-1` a `studio-phase-6`: fases de implementacao
+- `v0.6.0`: release oficial do Studio
+
+### Testes
+```powershell
+python -m pytest tests/agent_builder/ -v  # 144/144 pass
+cd web/frontend && npx tsc --noEmit       # clean
+cd web/frontend && npm run build          # OK
+```

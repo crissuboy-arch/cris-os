@@ -31,9 +31,54 @@ Modo CLASSICO (DEFAULT_AGENT=secretary):
 - **Plugins**: novo agente = nova pasta em `agents/`; o nucleo nao muda
 - **12 agentes legado**: 11 especialistas + 1 orquestrador (gerente) — modo classico
 - **5 skills**: `session-handoff` em producao; `browser-tool`, `roast`, `curriculum-builder`, `zavix-product` em scaffold
-- **99 testes**: todos verdes
+- **CRIS OS Studio**: interface visual para criar agentes sem codigo (v0.6.0)
+- **144 testes**: todos verdes
 
 Arquitetura completa em [ARQUITETURA.md](ARQUITETURA.md).
+
+---
+
+## CRIS OS Studio
+
+Interface visual completa para criar, configurar e testar agentes sem escrever codigo.
+
+### Funcionalidades (v0.6.0)
+
+- **Dashboard**: visao geral dos agentes com metricas e status
+- **Editor Visual**: configuracao de instructions, memory, permissions, tools
+- **System Prompt Preview**: preview em tempo real do system prompt montado
+- **Agent Playground**: teste interativo com input/output/status
+- **Templates**: 5 presets de agente para criacao rapida
+- **Autenticacao JWT**: login/logout, gestao de usuarios
+- **Export/Import**: agentes em formato padronizado
+- **Versioning**: historico de versoes com diff visual
+- **MCP Integration**: executor MCP via stdio
+- **Notifications**: notificacoes Telegram para confirmacoes pendentes
+- **Executive Dashboard**: metricas com graficos (recharts)
+
+### Como iniciar o Studio
+
+```powershell
+# Backend
+cd web/backend
+pip install -r requirements.txt
+python -m uvicorn routes.studio:app --reload --port 8000
+
+# Frontend
+cd web/frontend
+npm install
+npm run dev
+```
+
+Acesse: http://localhost:5173
+
+### Credenciais padrao
+
+| Usuario | Senha | Permissao |
+|---------|-------|-----------|
+| admin | admin123 | admin |
+| editor | editor123 | editor |
+| viewer | viewer123 | viewer |
 
 ---
 
@@ -44,6 +89,7 @@ Arquitetura completa em [ARQUITETURA.md](ARQUITETURA.md).
 - [ODS](https://github.com/inematds/ODS) (recomendado) ou Ollama standalone — https://ollama.com
 - Conta no Telegram
 - (Opcional) Chave de API NVIDIA AI ou OpenAI
+- (Opcional) Node.js 18+ (para o Studio)
 
 ### Instalar dependencias
 
@@ -288,7 +334,9 @@ cris-os/
   channels/         # Telegram (canais: whatsapp, discord, email em roadmap)
   config/           # settings.py (leitura do .env)
   tools/            # Ferramentas (browser, MCP)
-  tests/            # 99 testes
+  agent_builder/    # CRIS OS Studio: AgentBuilder, DynamicAgent, Store, API
+  web/              # CRIS OS Studio: Frontend (React) + Backend (FastAPI)
+  tests/            # 144 testes
   data/             # cris_os.db (runtime)
   scripts/          # Scripts uteis (run, preflight, test_nvidia)
 ```
@@ -327,7 +375,11 @@ cris-os/
 
 ## Roadmap resumido
 
-- Producao dos 11 especialistas (atualmente em draft)
+- **v0.6.0** ✅ CRIS OS Studio completo (Fase 6)
+- **v0.7.0** Dashboard executivo avancado (metricas por periodo, exportacao de relatorios)
+- **v0.8.0** Multi-usuario com papeis (admin, editor, viewer)
+- **v0.9.0** Integracoes externas (Calendar, WhatsApp, etc.)
+- **v1.0.0** Producao dos 11 especialistas (atualmente em draft)
 - Ferramentas reais: Google Calendar, Drive, GitHub, busca web
 - Novos canais: WhatsApp, Discord, Email, Instagram
 - Lembrete proativo e automacoes agendadas
@@ -340,11 +392,12 @@ Roadmap completo em [ROADMAP.md](ROADMAP.md). Arquitetura completa em [ARQUITETU
 
 ## Status Atual
 
+- **CRIS OS Studio v0.6.0** — interface visual completa
 - **CRIS OS v1.0** estavel.
 - **Integracao ODS** concluida (deteccao automatica + `/ods` no Telegram).
 - Integracao NVIDIA AI concluida (router 8B + geracao 70B).
 - Provedor OpenAI (fallback alternativo).
 - Telegram funcionando.
 - Fallback automatico entre ODS, NVIDIA, OpenAI e Ollama.
-- 82 testes, todos verdes.
+- 144 testes, todos verdes.
 - Arquitetura congelada nesta versao.
