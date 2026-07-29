@@ -31,6 +31,7 @@ Thumbs.db
 # Node / frontend (build artifacts — regeneraveis via npm install + npm run build)
 node_modules/
 web/frontend/dist/
+web/frontend/tsconfig.tsbuildinfo
 
 # Agentes criados no Studio (dados de runtime do Agent Builder)
 agent_builder/agents_studio/
