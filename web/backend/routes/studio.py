@@ -389,7 +389,7 @@ def execute_studio_agent(agent_id: str, req: ExecuteAgentRequest):
         raise HTTPException(status_code=404, detail="Agente nao encontrado")
 
     # Need published agent in registry
-    agent_reg = builder._registry
+    agent_reg = builder.get_registry()
     was_registered = agent_reg.get(defn.name) is not None
     if not was_registered:
         try:
@@ -493,7 +493,7 @@ def execute_studio_agent(agent_id: str, req: ExecuteAgentRequest):
 
         # Unregister if we registered it temporarily
         if not was_registered:
-            builder._unregister_agent(agent_id)
+            builder.unregister_agent(agent_id)
 
         return {
             "success": result.success,
@@ -523,7 +523,7 @@ def execute_studio_agent(agent_id: str, req: ExecuteAgentRequest):
         exec_log.add(record)
 
         if not was_registered:
-            builder._unregister_agent(agent_id)
+            builder.unregister_agent(agent_id)
 
         logger.exception("Erro ao executar agente '%s': %s", defn.name, exc)
         raise HTTPException(status_code=500, detail=f"Erro ao executar agente: {exc}")

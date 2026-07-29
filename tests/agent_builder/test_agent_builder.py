@@ -67,6 +67,7 @@ def mock_registry():
     reg._items = {}
     reg.register = lambda item: reg._items.__setitem__(item.name, item)
     reg.get = lambda name: reg._items.get(name)
+    reg.unregister = lambda name: reg._items.pop(name, None)
     return reg
 
 

@@ -9,16 +9,15 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 from typing import Any
 
+from config.settings import settings
+
 logger = logging.getLogger(__name__)
 
-TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
-TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 TELEGRAM_API = "https://api.telegram.org"
 
 
@@ -38,8 +37,8 @@ class StudioNotifier:
     """Envia notificacoes via Telegram."""
 
     def __init__(self, token: str = "", chat_id: str = "") -> None:
-        self._token = token or TELEGRAM_TOKEN
-        self._chat_id = chat_id or TELEGRAM_CHAT_ID
+        self._token = token or settings.TELEGRAM_BOT_TOKEN
+        self._chat_id = chat_id or settings.TELEGRAM_CHAT_ID
         self._history: list[Notification] = []
         self._counter = 0
         self._enabled = bool(self._token and self._chat_id)

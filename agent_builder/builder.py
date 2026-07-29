@@ -299,6 +299,13 @@ class AgentBuilder:
         except Exception as exc:
             logger.error("Falha ao registrar agente '%s': %s", defn.name, exc)
 
+    def unregister_agent(self, agent_id: str) -> None:
+        """Remove do AgentRegistry (pelo nome, se registrado com este ID).
+
+        Metodo publico para uso externo (ex.: Studio routes).
+        """
+        self._unregister_agent(agent_id)
+
     def _unregister_agent(self, agent_id: str) -> None:
         """Remove do AgentRegistry (pelo nome, se registrado com este ID)."""
         defn = self._store.load(agent_id)
@@ -306,8 +313,12 @@ class AgentBuilder:
             return
         registered = self._registry.get(defn.name)
         if registered is not None:
-            self._registry._items.pop(defn.name, None)
+            self._registry.unregister(defn.name)
             logger.info("Agente desregistrado do AgentRegistry: %s", defn.name)
+
+    def get_registry(self) -> Any:
+        """Retorna o AgentRegistry (metodo publico para uso externo)."""
+        return self._registry
 
     @staticmethod
     def _generate_id(name: str) -> str:

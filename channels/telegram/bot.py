@@ -24,8 +24,9 @@ from telegram.ext import (
     filters,
 )
 
+from channels.telegram.client import TelegramClient, get_telegram_client
 from core.contracts.channel import Handler
-from core.models import IncomingMessage
+from core.models import IncomingMessage, OutgoingMessage
 
 logger = logging.getLogger(__name__)
 
@@ -38,11 +39,13 @@ class TelegramChannel:
     name = NAME
 
     def __init__(self, token: str, handler: Handler, ods_client=None,
-                 agent_orchestrator=None) -> None:
+                 agent_orchestrator=None, client: TelegramClient | None = None) -> None:
         self.token = token
         self.handler = handler
         self.ods_client = ods_client
         self.agent_orch = agent_orchestrator
+        self._client = client or get_telegram_client()
+        self._app: Application | None = None
 
     # ------------------------------------------------------------------
     async def _on_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -161,6 +164,7 @@ class TelegramChannel:
     def run(self) -> None:
         """Inicia o canal em long-polling (bloqueante)."""
         app = Application.builder().token(self.token).build()
+        self._app = app
         app.add_handler(CommandHandler("start", self._on_start))
         app.add_handler(CommandHandler("ods", self._on_ods))
         app.add_handler(CommandHandler("agent", self._on_agent))
@@ -170,3 +174,14 @@ class TelegramChannel:
 
         logger.info("Canal Telegram iniciado. Aguardando mensagens...")
         app.run_polling(allowed_updates=Update.ALL_TYPES)
+
+    def send(self, message: OutgoingMessage) -> bool:
+        """Envia uma mensagem proativa para o canal.
+
+        Implementa o protocolo Channel.send().
+        """
+        result = self._client.send_message(
+            text=message.text,
+            chat_id=message.recipient_id,
+        )
+        return result.get("ok", False)

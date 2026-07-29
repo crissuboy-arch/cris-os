@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Callable, Protocol, runtime_checkable
 
-from core.models import IncomingMessage
+from core.models import IncomingMessage, OutgoingMessage
 
 # O Gateway entrega esta função ao canal. Recebe a mensagem normalizada e
 # devolve o texto de resposta pronto para enviar de volta.
@@ -25,4 +25,15 @@ class Channel(Protocol):
 
     def run(self) -> None:
         """Inicia o canal (fica escutando mensagens). Geralmente bloqueante."""
+        ...
+
+    def send(self, message: OutgoingMessage) -> bool:
+        """Envia uma mensagem proativa para o canal.
+
+        Args:
+            message: Mensagem a enviar (recipient_id, text).
+
+        Returns:
+            True se enviou com sucesso, False caso contrário.
+        """
         ...

@@ -25,6 +25,10 @@ class Registry:
     def register(self, item) -> None:
         self._items[item.name] = item
 
+    def unregister(self, name: str) -> None:
+        """Remove um item pelo nome."""
+        self._items.pop(name, None)
+
     def get(self, name: str):
         return self._items.get(name)
 

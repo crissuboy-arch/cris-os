@@ -163,16 +163,7 @@ class AgentRuntime:
         if self._core_api_factory is not None:
             return self._core_api_factory(agent_name)
         if self._plugin_loader is not None:
-            from core.application.core_api import CoreAPI
-            api = CoreAPI(
-                registry=self._plugin_loader._registry,
-                event_bus=self._plugin_loader._event_bus,
-                plugin_name=agent_name,
-                config_store=self._plugin_loader._config_store,
-                permission_checker=self._plugin_loader._permission_checker,
-                capability_executor=self._plugin_loader.execute_capability,
-            )
-            return api
+            return self._plugin_loader.get_core_api(agent_name)
         return None
 
     def _publish_event(self, event_type: str, correlation_id: str, payload: dict) -> None:

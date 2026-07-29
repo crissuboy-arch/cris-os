@@ -55,6 +55,7 @@ class Settings:
     # --- Telegram ---
     TELEGRAM_BOT_TOKEN: str = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
     TELEGRAM_ALLOWED_USER_ID: str = os.getenv("TELEGRAM_ALLOWED_USER_ID", "").strip()
+    TELEGRAM_CHAT_ID: str = os.getenv("TELEGRAM_CHAT_ID", "").strip()
 
     # --- NVIDIA AI ---
     NVIDIA_API_KEY: str = os.getenv("NVIDIA_API_KEY", "").strip()

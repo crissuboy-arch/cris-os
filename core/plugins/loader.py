@@ -94,6 +94,16 @@ class PluginLoader:
     def list_loaded(self) -> list[str]:
         return list(self._loaded.keys())
 
+    def get_core_api(self, plugin_name: str) -> CoreAPI:
+        """Cria uma instancia de CoreAPI para o plugin especificado.
+
+        Metodo publico para que AgentRuntime possa obter CoreAPI sem
+        acessar atributos privados.
+        """
+        api = self._make_api(plugin_name)
+        api._capability_executor = self.execute_capability
+        return api
+
     # ------------------------------------------------------------------
     # Execucao de capabilities
     # ------------------------------------------------------------------
