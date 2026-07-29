@@ -1,0 +1,251 @@
+{
+  "name": "cris-telegram",
+  "version": "1.0.0",
+  "description": "Plugin oficial de comunicacao Telegram do CRIS OS — gerencia mensagens, notificacoes, confirmacoes e executacao de agentes via Telegram",
+  "kind": "plugin",
+  "author": "CRIS OS Core Team",
+  "min_core_version": "1.0.0",
+
+  "capabilities": [
+    {
+      "name": "telegram.send",
+      "version": "1.0.0",
+      "description": "Envia uma mensagem de texto via Telegram",
+      "priority": 50,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "text": { "type": "string", "description": "Texto da mensagem" },
+          "chat_id": { "type": "string", "description": "Chat de destino (opcional)" },
+          "parse_mode": { "type": "string", "enum": ["Markdown", "HTML"], "default": "Markdown" }
+        },
+        "required": ["text"]
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "success": { "type": "boolean" },
+          "message_id": { "type": "integer" },
+          "chat_id": { "type": "string" }
+        }
+      },
+      "timeout_ms": 10000,
+      "idempotent": false
+    },
+    {
+      "name": "telegram.reply",
+      "version": "1.0.0",
+      "description": "Responde a uma mensagem especifica via Telegram",
+      "priority": 50,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "text": { "type": "string", "description": "Texto da resposta" },
+          "reply_to_message_id": { "type": "integer", "description": "ID da mensagem a responder" },
+          "chat_id": { "type": "string", "description": "Chat de destino (opcional)" }
+        },
+        "required": ["text", "reply_to_message_id"]
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "success": { "type": "boolean" },
+          "message_id": { "type": "integer" }
+        }
+      },
+      "timeout_ms": 10000,
+      "idempotent": false
+    },
+    {
+      "name": "telegram.notify",
+      "version": "1.0.0",
+      "description": "Envia uma notificacao proativa via Telegram",
+      "priority": 50,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "text": { "type": "string", "description": "Texto da notificacao" },
+          "priority": { "type": "string", "enum": ["low", "normal", "high"], "default": "normal" },
+          "chat_id": { "type": "string", "description": "Chat de destino (opcional)" }
+        },
+        "required": ["text"]
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "success": { "type": "boolean" },
+          "notification_id": { "type": "string" },
+          "sent_at": { "type": "string" }
+        }
+      },
+      "timeout_ms": 10000,
+      "idempotent": false
+    },
+    {
+      "name": "telegram.confirm",
+      "version": "1.0.0",
+      "description": "Envia uma mensagem de confirmacao com botoes Sim/Nao",
+      "priority": 50,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "text": { "type": "string", "description": "Texto da confirmacao" },
+          "confirm_id": { "type": "string", "description": "ID da acao a confirmar" },
+          "chat_id": { "type": "string", "description": "Chat de destino (opcional)" }
+        },
+        "required": ["text", "confirm_id"]
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "success": { "type": "boolean" },
+          "message_id": { "type": "integer" },
+          "confirm_id": { "type": "string" }
+        }
+      },
+      "timeout_ms": 10000,
+      "idempotent": false
+    },
+    {
+      "name": "telegram.reject",
+      "version": "1.0.0",
+      "description": "Rejeita uma acao pendente e notifica o usuario",
+      "priority": 50,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "confirm_id": { "type": "string", "description": "ID da acao a rejeitar" },
+          "reason": { "type": "string", "description": "Motivo da rejeicao" },
+          "chat_id": { "type": "string", "description": "Chat de destino (opcional)" }
+        },
+        "required": ["confirm_id"]
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "success": { "type": "boolean" },
+          "confirm_id": { "type": "string" },
+          "status": { "type": "string" }
+        }
+      },
+      "timeout_ms": 10000,
+      "idempotent": false
+    },
+    {
+      "name": "telegram.health",
+      "version": "1.0.0",
+      "description": "Estado de saude do plugin de Telegram",
+      "priority": 10,
+      "input_schema": { "type": "object", "properties": {} },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "status": { "type": "string" },
+          "connected": { "type": "boolean" },
+          "uptime_ms": { "type": "integer" },
+          "token_configured": { "type": "boolean" },
+          "chat_id_configured": { "type": "boolean" }
+        }
+      },
+      "timeout_ms": 3000,
+      "idempotent": true
+    },
+    {
+      "name": "telegram.metrics",
+      "version": "1.0.0",
+      "description": "Metricas de uso do plugin de Telegram",
+      "priority": 10,
+      "input_schema": { "type": "object", "properties": {} },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "total_sent": { "type": "integer" },
+          "total_replied": { "type": "integer" },
+          "total_notified": { "type": "integer" },
+          "total_confirmed": { "type": "integer" },
+          "total_rejected": { "type": "integer" },
+          "total_errors": { "type": "integer" }
+        }
+      },
+      "timeout_ms": 3000,
+      "idempotent": true
+    },
+    {
+      "name": "telegram.execute_agent",
+      "version": "1.0.0",
+      "description": "Executa um agente e retorna a resposta via Telegram",
+      "priority": 50,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "agent_name": { "type": "string", "description": "Nome do agente a executar" },
+          "input_text": { "type": "string", "description": "Texto de entrada para o agente" },
+          "chat_id": { "type": "string", "description": "Chat de destino (opcional)" }
+        },
+        "required": ["agent_name", "input_text"]
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "success": { "type": "boolean" },
+          "agent_name": { "type": "string" },
+          "response": { "type": "string" },
+          "message_id": { "type": "integer" }
+        }
+      },
+      "timeout_ms": 30000,
+      "idempotent": false
+    },
+    {
+      "name": "telegram.get_status",
+      "version": "1.0.0",
+      "description": "Retorna o status atual do Telegram (conexao, configuracao)",
+      "priority": 10,
+      "input_schema": { "type": "object", "properties": {} },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "connected": { "type": "boolean" },
+          "token_valid": { "type": "boolean" },
+          "chat_id": { "type": "string" },
+          "api_url": { "type": "string" }
+        }
+      },
+      "timeout_ms": 5000,
+      "idempotent": true
+    },
+    {
+      "name": "telegram.get_logs",
+      "version": "1.0.0",
+      "description": "Retorna logs de atividade do Telegram",
+      "priority": 10,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": { "type": "integer", "description": "Numero maximo de logs", "default": 50 },
+          "level": { "type": "string", "enum": ["info", "warning", "error", "all"], "default": "all" }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "logs": { "type": "array" },
+          "total": { "type": "integer" }
+        }
+      },
+      "timeout_ms": 5000,
+      "idempotent": true
+    }
+  ],
+
+  "subscriptions": [
+    {
+      "event_type": "telegram.message.received",
+      "description": "Responde a mensagens recebidas via Telegram"
+    },
+    {
+      "event_type": "agent.execution.completed",
+      "description": "Notifica quando um agente termina de executar"
+    }
+  ]
+}
