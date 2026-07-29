@@ -21,6 +21,7 @@ import SectionPermissions from './editor/sections/SectionPermissions'
 import ManifestPreview from './editor/ManifestPreview'
 import ValidationPanel from './editor/ValidationPanel'
 import PromptPreview from './editor/PromptPreview'
+import AgentPlayground from './editor/AgentPlayground'
 import { emptyForm, formToManifest, formToPayload, type AgentForm } from './editor/types'
 import { hasErrors, issuesBySection, validateForm, type ValidationIssue } from './editor/validation'
 
@@ -47,6 +48,7 @@ export default function StudioAgentEditor() {
   const [publishing, setPublishing] = useState(false)
   const [apiError, setApiError] = useState('')
   const [successMsg, setSuccessMsg] = useState('')
+  const [showPlayground, setShowPlayground] = useState(false)
 
   const formRef = useRef<HTMLElement>(null)
 
@@ -260,10 +262,10 @@ export default function StudioAgentEditor() {
             Salvar rascunho
           </button>
           <button
-            disabled
+            onClick={() => setShowPlayground(true)}
+            disabled={!agent}
             className="btn-ghost flex items-center gap-2"
-            title="O console de testes será implementado na próxima fase"
-            aria-label="Testar (disponível na próxima fase)"
+            title={!agent ? 'Salve o agente antes de testar' : 'Testar agente'}
           >
             <Play className="h-4 w-4" /> Testar
           </button>
@@ -401,6 +403,15 @@ export default function StudioAgentEditor() {
           </div>
         </aside>
       </div>
+
+      {/* Agent Playground Modal */}
+      {showPlayground && agent && (
+        <AgentPlayground
+          agentId={agent.agent_id}
+          agentName={agent.name}
+          onClose={() => setShowPlayground(false)}
+        />
+      )}
     </div>
   )
 }
