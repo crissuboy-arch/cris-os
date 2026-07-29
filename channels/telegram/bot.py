@@ -15,6 +15,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import secrets
+from datetime import datetime, timezone, timedelta
+from typing import Dict
 
 from telegram import Update
 from telegram.constants import ChatAction
@@ -28,12 +31,24 @@ from telegram.ext import (
 
 from channels.telegram.client import TelegramClient, get_telegram_client
 from channels.telegram.conversation import ConversationManager
+from channels.telegram.utils import ConfirmationUtils
 from core.contracts.channel import Handler
 from core.models import IncomingMessage, OutgoingMessage
 
 logger = logging.getLogger(__name__)
 
 NAME = "telegram"
+
+
+def _generate_confirmation_id() -> str:
+    """Gera um ID único para confirmação."""
+    return f"conf_{secrets.token_urlsafe(8)}"
+
+
+def _generate_confirmation_id() -> str:
+    """Gera um ID único para confirmação."""
+    _confirmation_counter["value"] += 1
+    return f"conf_{secrets.token_urlsafe(8)}"
 
 
 class TelegramChannel:

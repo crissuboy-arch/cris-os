@@ -102,7 +102,7 @@ class TestNaturalLanguageInterpreter:
         assert result.agent_hint == "produtividade"
 
     def test_general_question(self, interp):
-        result = interp.interpret("Como funciona o universo?")
+        result = interp.interpret("Como funciona o sistema de precos?")
         assert result.intent == "general_question"
         assert result.confidence > 0.0
 
