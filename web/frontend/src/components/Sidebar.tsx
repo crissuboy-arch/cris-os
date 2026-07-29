@@ -1,7 +1,7 @@
 import { NavLink } from 'react-router-dom'
 import {
   LayoutDashboard, Bot, MessageSquare, Brain, FolderKanban,
-  Users, CheckSquare, FileText, BarChart3, Settings, ChevronLeft, Palette,
+  Users, CheckSquare, FileText, BarChart3, Settings, ChevronLeft, Palette, Eye,
 } from 'lucide-react'
 import { useState } from 'react'
 import { clsx } from 'clsx'
@@ -17,6 +17,7 @@ const links = [
   { to: '/prompts', icon: FileText, label: 'Prompts' },
   { to: '/logs', icon: BarChart3, label: 'Logs' },
   { to: '/studio', icon: Palette, label: 'Studio' },
+  { to: '/studio/observabilidade', icon: Eye, label: 'Observabilidade' },
   { to: '/configuracoes', icon: Settings, label: 'Configurações' },
 ]
 

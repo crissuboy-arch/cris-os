@@ -456,6 +456,22 @@ def execute_studio_agent(agent_id: str, req: ExecuteAgentRequest):
         record.errors = inner_log.get("errors", [])
         exec_log.add(record)
 
+        # Record metrics
+        try:
+            metrics = _get_metrics()
+            metrics.record_from_log(record.to_dict())
+        except Exception:
+            pass
+
+        # Write to persistent memory
+        try:
+            from agent_builder.studio_memory import StudioMemory
+            mem = StudioMemory()
+            if result.success:
+                mem.write_agent_result(defn.name, req.instruction, result.output, req.session)
+        except Exception:
+            pass
+
         # Unregister if we registered it temporarily
         if not was_registered:
             builder._unregister_agent(agent_id)
@@ -617,9 +633,9 @@ def list_studio_tools():
             {
                 "type": "http",
                 "label": "Ferramentas HTTP",
-                "available": False,
-                "reason": "Ainda nao configurado — conectores HTTP serao adicionados em fase futura",
-                "items": [],
+                "available": True,
+                "items": _get_http_tools().list_registered(),
+                "reason": "",
             },
             {
                 "type": "mcp",
@@ -630,3 +646,179 @@ def list_studio_tools():
             },
         ]
     }
+
+
+# ----------------------------------------------------------------------
+# Fase 4: Metrics, Confirmations, HTTP execution
+# ----------------------------------------------------------------------
+
+_http_executor: Any = None
+
+
+def _get_http_tools() -> Any:
+    global _http_executor
+    if _http_executor is not None:
+        return _http_executor
+    from agent_builder.http_executor import StudioHttpExecutor
+    _http_executor = StudioHttpExecutor()
+    # Register HTTP tools from existing agent definitions
+    builder = _get_builder()
+    for defn in builder.list():
+        for http_tool in defn.tools.http:
+            if isinstance(http_tool, dict) and http_tool.get("url"):
+                try:
+                    _http_executor.register(http_tool)
+                except Exception:
+                    pass
+    return _http_executor
+
+
+def _get_metrics() -> Any:
+    from agent_builder.metrics import get_metrics
+    return get_metrics()
+
+
+def _get_confirmation_gateway() -> Any:
+    from agent_builder.confirmation_gateway import get_confirmation_gateway
+    return get_confirmation_gateway()
+
+
+@router.get("/studio/metrics")
+def studio_metrics(since: str | None = None):
+    """Metricas agregadas de execucoes do Studio."""
+    metrics = _get_metrics()
+    since_s = None
+    if since:
+        try:
+            unit = since[-1]
+            value = int(since[:-1])
+            if unit == "h":
+                since_s = value * 3600
+            elif unit == "d":
+                since_s = value * 86400
+            elif unit == "w":
+                since_s = value * 604800
+        except (ValueError, IndexError):
+            pass
+    return metrics.summary(since_s)
+
+
+@router.get("/studio/metrics/recent")
+def studio_metrics_recent(limit: int = 20):
+    """Ultimas entradas de metricas."""
+    metrics = _get_metrics()
+    return metrics.recent(limit)
+
+
+@router.get("/studio/metrics/agent/{agent_id}")
+def studio_metrics_agent(agent_id: str):
+    """Metricas de um agente especifico."""
+    metrics = _get_metrics()
+    return metrics.agent_summary(agent_id)
+
+
+# --- Confirmations ---
+
+class ConfirmRequest(BaseModel):
+    notes: str = ""
+
+
+@router.get("/studio/confirmations")
+def list_confirmations():
+    """Lista confirmacoes pendentes."""
+    gw = _get_confirmation_gateway()
+    return gw.list_pending()
+
+
+@router.get("/studio/confirmations/all")
+def list_all_confirmations(limit: int = 50):
+    """Todas as confirmacoes."""
+    gw = _get_confirmation_gateway()
+    return gw.list_all(limit)
+
+
+@router.get("/studio/confirmations/stats")
+def confirmation_stats():
+    gw = _get_confirmation_gateway()
+    return gw.stats()
+
+
+@router.post("/studio/confirmations/{confirmation_id}/confirm")
+def confirm_action(confirmation_id: str, req: ConfirmRequest):
+    gw = _get_confirmation_gateway()
+    if gw.confirm(confirmation_id, notes=req.notes):
+        return {"confirmed": True, "id": confirmation_id}
+    raise HTTPException(status_code=404, detail="Confirmacao nao encontrada ou ja resolvida")
+
+
+@router.post("/studio/confirmations/{confirmation_id}/reject")
+def reject_action(confirmation_id: str, req: ConfirmRequest):
+    gw = _get_confirmation_gateway()
+    if gw.reject(confirmation_id, notes=req.notes):
+        return {"rejected": True, "id": confirmation_id}
+    raise HTTPException(status_code=404, detail="Confirmacao nao encontrada ou ja resolvida")
+
+
+# --- HTTP tool execution ---
+
+class HttpExecuteRequest(BaseModel):
+    tool_name: str
+    params: dict = {}
+
+
+@router.post("/studio/http/execute")
+def execute_http_tool(req: HttpExecuteRequest):
+    """Executa uma ferramenta HTTP registrada."""
+    http = _get_http_tools()
+    result = http.execute(req.tool_name, req.params)
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail=result.get("error", "Falha na execucao HTTP"))
+    return result
+
+
+@router.post("/studio/http/register")
+def register_http_tool(config: dict):
+    """Registra uma nova ferramenta HTTP."""
+    http = _get_http_tools()
+    try:
+        req = http.register(config)
+        return {"registered": True, "name": req.name, "url": req.url, "method": req.method}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+# --- Memory endpoints ---
+
+@router.get("/studio/memory/session/{session_id}")
+def read_session_memory(session_id: str, limit: int = 10):
+    """Le mensagens de uma sessao."""
+    from agent_builder.studio_memory import StudioMemory
+    mem = StudioMemory()
+    return mem.read_session(session_id, limit)
+
+
+@router.get("/studio/memory/project/{project}")
+def read_project_memory(project: str):
+    """Le memoria de um projeto."""
+    from agent_builder.studio_memory import StudioMemory
+    mem = StudioMemory()
+    items = mem.read_project(project)
+    return [{"type": i.type, "title": i.title, "content": i.content, "tags": i.tags} for i in items]
+
+
+class ProjectMemoryWrite(BaseModel):
+    type: str = "note"
+    title: str
+    content: str
+    tags: list[str] = []
+
+
+@router.post("/studio/memory/project/{project}")
+def write_project_memory(project: str, req: ProjectMemoryWrite):
+    """Escreve na memoria de um projeto."""
+    from agent_builder.studio_memory import StudioMemory
+    mem = StudioMemory()
+    ok = mem.write_project(project, req.type, req.title, req.content, req.tags)
+    if ok:
+        return {"written": True, "project": project}
+    raise HTTPException(status_code=500, detail="Falha ao escrever na memoria do projeto")

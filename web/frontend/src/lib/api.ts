@@ -198,6 +198,54 @@ export interface StudioAgentUpdatePayload {
   metadata?: Record<string, any>
 }
 
+export interface StudioExecution {
+  id: string
+  agent_id: string
+  agent_name: string
+  instruction: string
+  status: 'running' | 'success' | 'error' | 'denied'
+  duration_ms: number
+  system_prompt: string
+  bindings_attempted: string[]
+  capabilities_called: Array<{ capability: string; params: Record<string, any>; timestamp: number }>
+  permissions_checked: Array<{ capability: string; status: string }>
+  permissions_denied: string[]
+  memory_reads: Array<{ type: string; items: number }>
+  memory_writes: Array<{ type: string; key: string; size: number }>
+  errors: string[]
+  output: string
+  timestamp: number
+  session: string
+}
+
+export interface StudioMetrics {
+  total: number
+  success: number
+  error: number
+  success_rate: number
+  avg_duration_ms: number
+  p95_duration_ms: number
+  p99_duration_ms: number
+  by_agent: Record<string, { total: number; success: number; error: number; avg_ms: number }>
+  by_capability: Record<string, { total: number; success: number; error: number }>
+  memory_reads: number
+  memory_writes: number
+  permissions_denied: number
+}
+
+export interface StudioConfirmation {
+  id: string
+  agent_id: string
+  agent_name: string
+  capability: string
+  instruction: string
+  params: Record<string, any>
+  status: 'pending' | 'confirmed' | 'rejected'
+  created_at: number
+  resolved_at: number | null
+  notes: string
+}
+
 export const studioApi = {
   list: () => request<StudioAgent[]>('/studio/agents'),
   get: (id: string) => request<StudioAgent>(`/studio/agents/${id}`),
@@ -218,4 +266,48 @@ export const studioApi = {
   capabilities: () => request<StudioCapability[]>('/studio/capabilities'),
   plugins: () => request<StudioPlugin[]>('/studio/plugins'),
   tools: () => request<{ types: StudioToolType[] }>('/studio/tools'),
+
+  // Execute
+  execute: (id: string, instruction: string, session = 'studio') =>
+    request<any>(`/studio/agents/${id}/execute`, {
+      method: 'POST',
+      body: JSON.stringify({ instruction, session }),
+    }),
+
+  // Executions
+  executions: (limit = 50) => request<StudioExecution[]>(`/studio/executions?limit=${limit}`),
+  execution: (id: string) => request<StudioExecution>(`/studio/executions/${id}`),
+  executionStats: () => request<any>('/studio/executions/stats'),
+  agentExecutions: (id: string, limit = 20) =>
+    request<StudioExecution[]>(`/studio/agents/${id}/executions?limit=${limit}`),
+
+  // Metrics
+  metrics: (since?: string) => request<StudioMetrics>(`/studio/metrics${since ? `?since=${since}` : ''}`),
+  metricsRecent: (limit = 20) => request<any[]>(`/studio/metrics/recent?limit=${limit}`),
+  metricsAgent: (id: string) => request<any>(`/studio/metrics/agent/${id}`),
+
+  // Confirmations
+  confirmations: () => request<StudioConfirmation[]>('/studio/confirmations'),
+  confirmationsAll: (limit = 50) => request<StudioConfirmation[]>(`/studio/confirmations/all?limit=${limit}`),
+  confirmationStats: () => request<any>('/studio/confirmations/stats'),
+  confirmAction: (id: string, notes = '') =>
+    request<any>(`/studio/confirmations/${id}/confirm`, {
+      method: 'POST',
+      body: JSON.stringify({ notes }),
+    }),
+  rejectAction: (id: string, notes = '') =>
+    request<any>(`/studio/confirmations/${id}/reject`, {
+      method: 'POST',
+      body: JSON.stringify({ notes }),
+    }),
+
+  // Memory
+  sessionMemory: (sessionId: string, limit = 10) =>
+    request<any[]>(`/studio/memory/session/${sessionId}?limit=${limit}`),
+  projectMemory: (project: string) => request<any[]>(`/studio/memory/project/${project}`),
+  writeProjectMemory: (project: string, data: { type?: string; title: string; content: string; tags?: string[] }) =>
+    request<any>(`/studio/memory/project/${project}`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
 }

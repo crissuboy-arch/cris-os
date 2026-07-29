@@ -13,6 +13,7 @@ import Settings from './pages/Settings'
 import StudioDashboard from './pages/studio/StudioDashboard'
 import StudioAgentList from './pages/studio/StudioAgentList'
 import StudioAgentEditor from './pages/studio/StudioAgentEditor'
+import StudioObservability from './pages/studio/StudioObservability'
 
 export default function App() {
   return (
@@ -31,6 +32,7 @@ export default function App() {
         <Route path="/studio" element={<StudioDashboard />} />
         <Route path="/studio/agentes" element={<StudioAgentList />} />
         <Route path="/studio/agentes/:id" element={<StudioAgentEditor />} />
+        <Route path="/studio/observabilidade" element={<StudioObservability />} />
       </Route>
     </Routes>
   )
