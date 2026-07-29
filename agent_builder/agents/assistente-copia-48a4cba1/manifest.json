@@ -1,0 +1,37 @@
+{
+  "agent_id": "assistente-copia-48a4cba1",
+  "name": "assistente-copia",
+  "version": "1.0.0",
+  "description": "Agente que cria notas e responde a ecos",
+  "status": "draft",
+  "bindings": [
+    {
+      "keyword": "criar nota",
+      "capability": "notes.create",
+      "input_template": {
+        "title": "Nota do Assistente",
+        "content": "{instruction}"
+      },
+      "description": "",
+      "priority": 50
+    },
+    {
+      "keyword": "echo",
+      "capability": "demo.echo",
+      "input_template": {
+        "message": "{instruction}"
+      },
+      "description": "",
+      "priority": 100
+    }
+  ],
+  "config": {
+    "timeout_ms": 30000,
+    "max_iterations": 10,
+    "allow_fallback": true
+  },
+  "metadata": {},
+  "created_at": "2026-07-28T18:06:06.078536+00:00",
+  "updated_at": "2026-07-28T18:06:06.078536+00:00",
+  "published_at": null
+}

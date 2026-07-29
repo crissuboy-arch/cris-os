@@ -1,0 +1,68 @@
+{
+  "name": "cris-demo",
+  "version": "1.0.0",
+  "description": "Plugin de demonstracao para validar a arquitetura de plugins do CRIS OS",
+  "kind": "plugin",
+  "author": "CRIS OS Core Team",
+  "min_core_version": "1.0.0",
+
+  "capabilities": [
+    {
+      "name": "demo.hello",
+      "version": "1.0.0",
+      "description": "Saudacao simples — valida registro, chamada e resposta",
+      "priority": 50,
+      "input_schema": { "type": "object", "properties": { "name": { "type": "string" } } },
+      "output_schema": { "type": "object", "properties": { "greeting": { "type": "string" } } },
+      "timeout_ms": 5000,
+      "idempotent": true
+    },
+    {
+      "name": "demo.health",
+      "version": "1.0.0",
+      "description": "Retorna estado interno do plugin — valida isolação e health tracking",
+      "priority": 50,
+      "input_schema": { "type": "object", "properties": {} },
+      "output_schema": { "type": "object", "properties": { "state": { "type": "string" } } },
+      "timeout_ms": 3000,
+      "idempotent": true
+    },
+    {
+      "name": "demo.echo",
+      "version": "1.0.0",
+      "description": "Ecoa os dados recebidos — valida passagem de parâmetros e schema",
+      "priority": 30,
+      "input_schema": { "type": "object" },
+      "output_schema": { "type": "object" },
+      "timeout_ms": 5000,
+      "idempotent": true
+    },
+    {
+      "name": "demo.fallback",
+      "version": "1.0.0",
+      "description": "Retorna fallback explicito para testar degradação graciosa",
+      "priority": 10,
+      "input_schema": { "type": "object" },
+      "output_schema": { "type": "object" },
+      "timeout_ms": 2000,
+      "idempotent": true
+    },
+    {
+      "name": "demo.isolation",
+      "version": "1.0.0",
+      "description": "Lança exceção proposital — valida que o Core isola a falha",
+      "priority": 100,
+      "input_schema": { "type": "object", "properties": { "trigger": { "type": "string" } } },
+      "output_schema": { "type": "object" },
+      "timeout_ms": 3000,
+      "idempotent": false
+    }
+  ],
+
+  "subscriptions": [
+    {
+      "event_type": "demo.ping",
+      "description": "Responde a eventos de ping"
+    }
+  ]
+}

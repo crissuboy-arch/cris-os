@@ -35,13 +35,24 @@ def main() -> int:
     logger = logging.getLogger("cris-os")
     logger.info("Iniciando o CRIS OS...")
 
+    from config.settings import settings as s
+
+    logger.info("ODS: %s (URL: %s | Fallback: %s)",
+                "ativo" if s.ODS_ENABLED else "inativo",
+                s.ODS_BASE_URL if s.ODS_ENABLED else "-",
+                s.ODS_FALLBACK_PROVIDER if s.ODS_ENABLED else "-")
+
     try:
         app = build()
     except StartupError as exc:
         logger.error("Nao foi possivel iniciar:\n%s", exc)
         return 1
 
-    logger.info("Tudo pronto! Abra o Telegram e fale com o seu bot. (Ctrl+C para parar)")
+    ods_status = ""
+    if app.ods_client:
+        ods_status = " | ODS: " + ("online" if app.ods_client.is_online() else "offline")
+
+    logger.info("Tudo pronto! Abra o Telegram e fale com o seu bot.%s (Ctrl+C para parar)", ods_status)
 
     try:
         app.run()

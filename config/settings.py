@@ -73,12 +73,34 @@ class Settings:
     OLLAMA_NUM_GPU: int | None = _get_int_or_none("OLLAMA_NUM_GPU")
 
     # --- CRIS OS ---
-    DEFAULT_AGENT: str = os.getenv("DEFAULT_AGENT", "secretary").strip()
+    DEFAULT_AGENT: str = os.getenv("DEFAULT_AGENT", "auto").strip()
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO").strip().upper()
     MEMORY_CONTEXT_MESSAGES: int = _get_int("MEMORY_CONTEXT_MESSAGES", 12)
 
     # Tempo de vida do "lease" de líder (eleição p/ 2ª máquina / failover).
     LEASE_TTL_SECONDS: int = _get_int("LEASE_TTL_SECONDS", 60)
+
+    # --- ODS (Osmantic Deployment System) ---
+    ODS_ENABLED: bool = _get_bool("ODS_ENABLED", True)
+    ODS_BASE_URL: str = os.getenv("ODS_BASE_URL", "http://localhost:11434").rstrip("/")
+    ODS_FALLBACK_URL: str = os.getenv("ODS_FALLBACK_URL", "http://localhost:8080").rstrip("/")
+    ODS_WEBUI_URL: str = os.getenv("ODS_WEBUI_URL", "http://localhost:3000").rstrip("/")
+    ODS_TIMEOUT: int = _get_int("ODS_TIMEOUT", 120)
+    ODS_MODEL: str = os.getenv("ODS_MODEL", "auto").strip()
+
+    # --- Fallback: OpenAI (API compatível) ---
+    OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "").strip()
+    OPENAI_BASE_URL: str = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
+    OPENAI_MODEL: str = os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip()
+    OPENAI_TIMEOUT: int = _get_int("OPENAI_TIMEOUT", 120)
+
+    # --- Fallback: Google Gemini ---
+    GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "").strip()
+    GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-2.0-flash").strip()
+
+    # --- Provedor de fallback quando ODS está offline ---
+    # Valores: "nvidia", "openai", "gemini", "anthropic"
+    ODS_FALLBACK_PROVIDER: str = os.getenv("ODS_FALLBACK_PROVIDER", "nvidia").strip().lower()
 
     # --- Camada de cognição (autonomia) ---
     # Falso por padrão: a camada é CONSTRUÍDA (faz parte da arquitetura) mas fica
@@ -103,6 +125,12 @@ class Settings:
             problemas.append("OLLAMA_HOST está vazio.")
         if not self.OLLAMA_MODEL:
             problemas.append("OLLAMA_MODEL está vazio.")
+
+        # Se ODS estiver habilitado, verifica configuracao basica
+        if self.ODS_ENABLED:
+            if not self.ODS_BASE_URL:
+                problemas.append("ODS_BASE_URL está vazio.")
+
         return problemas
 
 

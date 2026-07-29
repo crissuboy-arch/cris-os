@@ -11,6 +11,7 @@ Orquestrador foi decomposto em três responsabilidades únicas (SRP):
   Orchestrator      -> amarra os três e publica eventos
 """
 
+from .core_api import CoreAPI  # noqa: F401
 from .composer import ResponseComposer  # noqa: F401
 from .confirmation import ConfirmationGate  # noqa: F401
 from .dispatcher import ExecutionDispatcher, TargetRegistry  # noqa: F401

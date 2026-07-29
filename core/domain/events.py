@@ -63,6 +63,17 @@ class EventType:
     SKILL_COMPLETED = "skill.completed"
     SKILL_FAILED = "skill.failed"
 
+    # --- Capability Registry ---
+    CAPABILITY_REGISTERED = "capability.registered"
+    CAPABILITY_UNREGISTERED = "capability.unregistered"
+    CAPABILITY_HEALTH_CHANGED = "capability.health.changed"
+    CAPABILITY_CONFLICT_DETECTED = "capability.conflict.detected"
+    CAPABILITY_CALL_STARTED = "capability.call.started"
+    CAPABILITY_CALL_COMPLETED = "capability.call.completed"
+    CAPABILITY_CALL_FAILED = "capability.call.failed"
+    CAPABILITY_FALLBACK = "capability.fallback"
+    CAPABILITY_NOT_FOUND = "capability.not_found"
+
 
 @dataclass
 class Event:

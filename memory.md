@@ -8,7 +8,7 @@
 **Goal:** Construir o sistema operacional pessoal da Cris (equipe de agentes) que
 automatize a vida pessoal e profissional e cresça por anos.
 **Owner:** Cris (dona única).
-**Updated:** 2026-07-01
+**Updated:** 2026-07-28
 
 ## Onde estamos (fases)
 - **Arquitetura v3** (Clean Architecture + event-driven + memória 4 camadas + plugins): **pronta**.
@@ -17,6 +17,18 @@ automatize a vida pessoal e profissional e cresça por anos.
 - **Sistema de Skills:** SDK + Registry + 5 skills descobertas; `session-handoff` completa, habilitada e **executando em produção**.
 - **ONDA 1 (estabilização):** ✅ concluída (B0–B7) — ver [ONDA1_COMPLETED.md](ONDA1_COMPLETED.md).
 - **ONDA 2 (execução real de skills):** ✅ **CONCLUÍDA e validada no Telegram real** — ver [ONDA2_COMPLETED.md](ONDA2_COMPLETED.md).
+
+## Baseline v1 — Core Module 1 (Capability Registry)
+- **Status:** CONCLUÍDO E CONGELADO ✅
+- **Checkpoint:** [docs/baseline-v1-capability-registry.md](docs/baseline-v1-capability-registry.md)
+- **Testes:** 196/196 passando
+- **Exemplo:** `python examples/capability_registry_demo.py`
+- **Interfaces públicas congeladas** — breaking changes exigem versionamento major
+- **Próximo módulo:** Event Bus (Module 2)
+
+## Próximos passos (após aprovação do checkpoint)
+1. Implementar **Event Bus** — backbone event-driven (pub/sub síncrono + assíncrono opcional)
+2. Implementar **Event Log** — append-only em SQLite (auditoria, replicação, failover)
 
 ## ONDA 2 — todos os blocos concluídos
 | Bloco | O quê | Status |

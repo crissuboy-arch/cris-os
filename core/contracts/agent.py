@@ -12,7 +12,7 @@ Orquestrador".
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from core.models import AgentResult, KnowledgeItem, Passage, Task
 
@@ -27,6 +27,7 @@ class AgentContext:
     project_memory: list[KnowledgeItem] = field(default_factory=list)  # L2 (escopado)
     permanent: list[KnowledgeItem] = field(default_factory=list)  # L3
     knowledge: list[Passage] = field(default_factory=list)  # L4 (recuperado)
+    core_api: Any = None  # CoreAPI injetado pelo AgentRuntime (permite chamar capabilities)
 
 
 @runtime_checkable

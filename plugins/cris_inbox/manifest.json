@@ -1,0 +1,151 @@
+{
+  "name": "cris-inbox",
+  "version": "1.0.0",
+  "description": "Plugin de e-mail do CRIS OS — simula provedor para validar toda a arquitetura do Core",
+  "kind": "plugin",
+  "author": "CRIS OS Core Team",
+  "min_core_version": "1.0.0",
+
+  "capabilities": [
+    {
+      "name": "email.read",
+      "version": "1.0.0",
+      "description": "Le uma mensagem de e-mail pelo ID",
+      "priority": 50,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "message_id": { "type": "string", "description": "ID da mensagem" }
+        },
+        "required": ["message_id"]
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "from": { "type": "string" },
+          "subject": { "type": "string" },
+          "body": { "type": "string" },
+          "date": { "type": "string" }
+        }
+      },
+      "timeout_ms": 10000,
+      "idempotent": true
+    },
+    {
+      "name": "email.search",
+      "version": "1.0.0",
+      "description": "Busca mensagens na caixa de entrada por query",
+      "priority": 50,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": { "type": "string", "description": "Termo de busca" },
+          "max_results": { "type": "integer", "default": 10 }
+        },
+        "required": ["query"]
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "results": { "type": "array" },
+          "total": { "type": "integer" }
+        }
+      },
+      "timeout_ms": 15000,
+      "idempotent": true
+    },
+    {
+      "name": "email.send",
+      "version": "1.0.0",
+      "description": "Envia um e-mail",
+      "priority": 50,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "to": { "type": "string" },
+          "subject": { "type": "string" },
+          "body": { "type": "string" }
+        },
+        "required": ["to", "subject", "body"]
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "message_id": { "type": "string" },
+          "status": { "type": "string" }
+        }
+      },
+      "timeout_ms": 20000,
+      "idempotent": false
+    },
+    {
+      "name": "email.archive",
+      "version": "1.0.0",
+      "description": "Arquiva uma mensagem de e-mail",
+      "priority": 50,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "message_id": { "type": "string" }
+        },
+        "required": ["message_id"]
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "status": { "type": "string" }
+        }
+      },
+      "timeout_ms": 10000,
+      "idempotent": true
+    },
+    {
+      "name": "email.health",
+      "version": "1.0.0",
+      "description": "Estado de saude do provedor de e-mail",
+      "priority": 10,
+      "input_schema": { "type": "object", "properties": {} },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "status": { "type": "string" },
+          "provider": { "type": "string" },
+          "uptime_ms": { "type": "integer" }
+        }
+      },
+      "timeout_ms": 3000,
+      "idempotent": true
+    },
+    {
+      "name": "email.metrics",
+      "version": "1.0.0",
+      "description": "Metricas de uso do plugin de e-mail",
+      "priority": 10,
+      "input_schema": { "type": "object", "properties": {} },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "total_sent": { "type": "integer" },
+          "total_read": { "type": "integer" },
+          "total_searched": { "type": "integer" },
+          "total_archived": { "type": "integer" },
+          "errors": { "type": "integer" }
+        }
+      },
+      "timeout_ms": 3000,
+      "idempotent": true
+    }
+  ],
+
+  "subscriptions": [
+    {
+      "event_type": "email.send.requested",
+      "description": "Responde a solicitacoes de envio externas"
+    },
+    {
+      "event_type": "email.sync.triggered",
+      "description": "Sincroniza caixa de entrada quando solicitado"
+    }
+  ]
+}

@@ -6,9 +6,11 @@ Ollama por Claude, Telegram por WhatsApp, SQLite por Postgres ou ligar MCP vira
 "plugar outro adaptador", sem tocar nas regras de negócio.
 """
 
+from . import capability  # noqa: F401
 from .agent import Agent, AgentContext  # noqa: F401
 from .channel import Channel, Handler  # noqa: F401
 from .cognition import ExecutionManager, QualitySupervisor, StrategicPlanner  # noqa: F401
+from .configuration import ConfigurationStore  # noqa: F401
 from .events import EventBus, EventLog, Subscriber  # noqa: F401
 from .execution import DispatchContext, ExecutionTarget  # noqa: F401
 from .llm import LLMProvider, LLMResponse, ToolCall  # noqa: F401
@@ -19,6 +21,8 @@ from .memory import (  # noqa: F401
     ProjectMemoryStore,
     TemporaryStore,
 )
+from .permission import PermissionChecker  # noqa: F401
+from .plugin import KIND_AGENT, KIND_CHANNEL, KIND_LLM, KIND_MCP, KIND_TOOL, Plugin  # noqa: F401
 from .replication import Lease, LeaseStore, Replicator  # noqa: F401
 from .routing import RouteCandidate, RouteScorer, ScoredRoute  # noqa: F401
 from .skill import SkillExecutor, SkillMemory  # noqa: F401

@@ -47,7 +47,7 @@ INFRAESTRUTURA  Ollama · Telegram · SQLite · (Postgres/MCP/Google/n8n)   ← 
 | `Channel` | `channels/telegram/` |
 | `Agent` | `agents/base.py` (BaseAgent) |
 | `Tool` / `MCPClient` | — (design; `tools/`, `mcp/`) |
-| `EventBus` / `EventLog` | `core/events/bus.py` + `storage/sqlite_ops.py` |
+| `EventBus` / `EventLog` | `core/events/bus.py` (EM CONSTRUCAO — Modulo 2) + `storage/sqlite_ops.py` |
 | `ConversationStore`,`TemporaryStore`,`ProjectMemoryStore`,`PermanentStore`,`KnowledgeBase` | `storage/sqlite_memory.py` |
 | `TaskStore` | `storage/sqlite_ops.py` |
 | `Replicator` / `LeaseStore` | `replication/noop.py` + `storage/sqlite_ops.py` |

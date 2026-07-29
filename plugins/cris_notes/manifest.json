@@ -1,0 +1,148 @@
+{
+  "name": "cris-notes",
+  "version": "1.0.0",
+  "description": "Plugin de notas pessoais do CRIS OS — valida que um segundo dominio funciona sobre o mesmo Core sem alteracoes estruturais",
+  "kind": "plugin",
+  "author": "CRIS OS Core Team",
+  "min_core_version": "1.0.0",
+
+  "capabilities": [
+    {
+      "name": "notes.create",
+      "version": "1.0.0",
+      "description": "Cria uma nova nota com titulo e conteudo",
+      "priority": 50,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "title": { "type": "string" },
+          "content": { "type": "string" },
+          "tags": { "type": "array", "items": { "type": "string" } }
+        },
+        "required": ["title", "content"]
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "title": { "type": "string" },
+          "created_at": { "type": "string" }
+        }
+      },
+      "timeout_ms": 5000,
+      "idempotent": false
+    },
+    {
+      "name": "notes.read",
+      "version": "1.0.0",
+      "description": "Le uma nota pelo ID",
+      "priority": 50,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "note_id": { "type": "string" }
+        },
+        "required": ["note_id"]
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "title": { "type": "string" },
+          "content": { "type": "string" },
+          "tags": { "type": "array" },
+          "created_at": { "type": "string" }
+        }
+      },
+      "timeout_ms": 5000,
+      "idempotent": true
+    },
+    {
+      "name": "notes.search",
+      "version": "1.0.0",
+      "description": "Busca notas por titulo, conteudo ou tags",
+      "priority": 50,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": { "type": "string" },
+          "max_results": { "type": "integer", "default": 20 }
+        },
+        "required": ["query"]
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "results": { "type": "array" },
+          "total": { "type": "integer" }
+        }
+      },
+      "timeout_ms": 10000,
+      "idempotent": true
+    },
+    {
+      "name": "notes.delete",
+      "version": "1.0.0",
+      "description": "Remove uma nota pelo ID",
+      "priority": 50,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "note_id": { "type": "string" }
+        },
+        "required": ["note_id"]
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "status": { "type": "string" },
+          "note_id": { "type": "string" }
+        }
+      },
+      "timeout_ms": 5000,
+      "idempotent": true
+    },
+    {
+      "name": "notes.health",
+      "version": "1.0.0",
+      "description": "Estado de saude do plugin de notas",
+      "priority": 10,
+      "input_schema": { "type": "object", "properties": {} },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "status": { "type": "string" },
+          "total_notes": { "type": "integer" }
+        }
+      },
+      "timeout_ms": 3000,
+      "idempotent": true
+    },
+    {
+      "name": "notes.metrics",
+      "version": "1.0.0",
+      "description": "Metricas de uso do plugin de notas",
+      "priority": 10,
+      "input_schema": { "type": "object", "properties": {} },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "total_created": { "type": "integer" },
+          "total_read": { "type": "integer" },
+          "total_searched": { "type": "integer" },
+          "total_deleted": { "type": "integer" },
+          "active_notes": { "type": "integer" }
+        }
+      },
+      "timeout_ms": 3000,
+      "idempotent": true
+    }
+  ],
+
+  "subscriptions": [
+    {
+      "event_type": "notes.sync.requested",
+      "description": "Responde a solicitacoes de sincronizacao de notas"
+    }
+  ]
+}

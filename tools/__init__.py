@@ -1,6 +1,8 @@
 """
-Ferramentas (capacidades dos agentes no mundo real).
+Pacote de ferramentas dos agentes especialistas.
 
-Cada ferramenta implementa a porta core.contracts.tool.Tool.
-Fase 1: nenhuma ferramenta concreta — só o contrato e o ToolRegistry (vazio).
+Cada modulo exporta uma funcao get_tools() -> list[Tool].
+O SpecialistAgent usa essas ferramentas para executar tarefas.
 """
+
+from tools.base import Tool
