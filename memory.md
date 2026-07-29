@@ -81,6 +81,16 @@ esperar ~1 min (a sessão `getUpdates` anterior expira no lado do Telegram).
 4. Revisar/ativar a **camada de cognição** (Planner/Execution/Quality).
 5. Só então: integrações externas (Calendar, WhatsApp, MCP).
 
+## CRIS OS Studio — Fase 6 CONCLUÍDA ✅
+- **Tag:** `studio-phase-6` (sub-tags: 6a, 6b, 6c, 6d)
+- **Commits:** f2671f5 (6a), 3f6bd41 (6b), 3e2ec06 (6c), 9be7d75 (6d), dd75d4d (consolidacao)
+- **Testes:** 144/144 pytest pass, tsc clean, build OK
+- **Resumo das sub-fases:**
+  - **6a (Bugfix payload):** `formToPayload()` agora envia `instructions`, `memory`, `permissions`, `tools` como top-level (antes ficavam perdidos em `metadata`)
+  - **6b (System Prompt Preview):** componente `PromptPreview.tsx` monta o system prompt em tempo real no editor
+  - **6c (Agent Playground):** modal completo com input, output, status bar, system prompt toggle, metadata toggle, copiar
+  - **6d (Templates):** 5 presets de agente (Assistente Pessoal, Atendimento, Marketing, Vendas, Programador) + seletor no CreateAgentModal
+
 ## audit_log
 - **2026-06-29** — 1ª auditoria após adotar o modelo de 6 camadas (ver [OS-AUDIT.md](OS-AUDIT.md)).
 - **2026-07-01** — ONDA 2 concluída (B0–B7): kernel de execução, gate de confirmação, Browser read-only.
