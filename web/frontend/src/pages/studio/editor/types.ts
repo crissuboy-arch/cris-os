@@ -61,6 +61,12 @@ export const MEMORY_OPTIONS: Array<{ mode: MemoryMode; label: string; enabled: b
 ]
 
 export function emptyForm(agent?: StudioAgent): AgentForm {
+  // Read Phase 3 fields from top-level, with fallback to metadata for backward compat
+  const instrucoesTop = agent?.instructions
+  const memoryTop = agent?.memory
+  const permissionsTop = agent?.permissions
+  const toolsTop = agent?.tools
+
   return {
     name: agent?.name ?? '',
     description: agent?.description ?? '',
@@ -70,21 +76,21 @@ export function emptyForm(agent?: StudioAgent): AgentForm {
     icone: agent?.metadata?.icone ?? 'Bot',
     tags: agent?.metadata?.tags ?? [],
     instrucoes: {
-      prompt: agent?.metadata?.instrucoes?.prompt ?? '',
-      papel: agent?.metadata?.instrucoes?.papel ?? '',
-      regras: agent?.metadata?.instrucoes?.regras ?? '',
-      restricoes: agent?.metadata?.instrucoes?.restricoes ?? '',
-      objetivo: agent?.metadata?.instrucoes?.objetivo ?? '',
-      formato_saida: agent?.metadata?.instrucoes?.formato_saida ?? '',
+      prompt: instrucoesTop?.custom_prompt ?? agent?.metadata?.instrucoes?.prompt ?? '',
+      papel: instrucoesTop?.role ?? agent?.metadata?.instrucoes?.papel ?? '',
+      regras: instrucoesTop?.rules?.join('\n') ?? agent?.metadata?.instrucoes?.regras ?? '',
+      restricoes: instrucoesTop?.restrictions?.join('\n') ?? agent?.metadata?.instrucoes?.restricoes ?? '',
+      objetivo: instrucoesTop?.objective ?? agent?.metadata?.instrucoes?.objetivo ?? '',
+      formato_saida: instrucoesTop?.output_format ?? agent?.metadata?.instrucoes?.formato_saida ?? '',
     },
     selectedCapabilities: agent?.metadata?.capabilities ?? [],
     selectedPlugins: agent?.metadata?.plugins ?? [],
     tools: {
-      internal: agent?.metadata?.tools?.internal ?? [],
-      http: agent?.metadata?.tools?.http ?? [],
-      mcp: agent?.metadata?.tools?.mcp ?? [],
+      internal: toolsTop?.internal ?? agent?.metadata?.tools?.internal ?? [],
+      http: toolsTop?.http ?? agent?.metadata?.tools?.http ?? [],
+      mcp: toolsTop?.mcp ?? agent?.metadata?.tools?.mcp ?? [],
     },
-    memoryMode: agent?.metadata?.memory?.mode ?? 'none',
+    memoryMode: (memoryTop?.memory_type as MemoryMode) ?? agent?.metadata?.memory?.mode ?? 'none',
     bindings: (agent?.bindings ?? []).map(b => ({
       keyword: b.keyword,
       capability: b.capability,
@@ -92,7 +98,7 @@ export function emptyForm(agent?: StudioAgent): AgentForm {
       priority: b.priority ?? 50,
       params: templateToParams(b.input_template ?? {}),
     })),
-    requireConfirmation: agent?.metadata?.permissoes?.require_confirmation ?? [],
+    requireConfirmation: permissionsTop?.require_confirmation ?? agent?.metadata?.permissoes?.require_confirmation ?? [],
     config: {
       timeout_ms: agent?.config?.timeout_ms ?? 30000,
       max_iterations: agent?.config?.max_iterations ?? 10,
@@ -140,6 +146,39 @@ export function paramsToTemplate(params: ParamMapping[]): Record<string, string>
 }
 
 export function formToPayload(form: AgentForm): StudioAgentUpdatePayload {
+  // Build instructions from form fields
+  const instructions = {
+    role: form.instrucoes.papel,
+    objective: form.instrucoes.objetivo,
+    rules: form.instrucoes.regras ? form.instrucoes.regras.split('\n').filter(Boolean) : [],
+    restrictions: form.instrucoes.restricoes ? form.instrucoes.restricoes.split('\n').filter(Boolean) : [],
+    output_format: form.instrucoes.formato_saida,
+    custom_prompt: form.instrucoes.prompt,
+  }
+
+  // Build memory config
+  const memory = {
+    memory_type: form.memoryMode,
+    scope: [] as string[],
+    read_enabled: true,
+    write_enabled: form.memoryMode !== 'none',
+    project: '',
+  }
+
+  // Build permissions
+  const permissions = {
+    allowed_capabilities: [],
+    denied_capabilities: [],
+    require_confirmation: form.requireConfirmation,
+  }
+
+  // Build tools — form stores names as strings, backend expects dicts
+  const tools = {
+    internal: form.tools.internal,
+    http: form.tools.http.map(name => typeof name === 'string' ? { name } : name),
+    mcp: form.tools.mcp.map(name => typeof name === 'string' ? { name } : name),
+  }
+
   return {
     name: form.name.trim(),
     description: form.description.trim(),
@@ -156,13 +195,14 @@ export function formToPayload(form: AgentForm): StudioAgentUpdatePayload {
       categoria: form.categoria,
       icone: form.icone,
       tags: form.tags,
-      instrucoes: { ...form.instrucoes },
       capabilities: form.selectedCapabilities,
       plugins: form.selectedPlugins,
-      tools: { ...form.tools },
-      memory: { mode: form.memoryMode },
-      permissoes: { require_confirmation: form.requireConfirmation },
     },
+    // Fase 3 fields as top-level
+    instructions,
+    memory,
+    permissions,
+    tools,
   }
 }
 
@@ -178,6 +218,10 @@ export function formToManifest(form: AgentForm, agent: StudioAgent | null): Reco
     bindings: payload.bindings,
     config: payload.config,
     metadata: payload.metadata,
+    instructions: payload.instructions,
+    memory: payload.memory,
+    permissions: payload.permissions,
+    tools: payload.tools,
     created_at: agent?.created_at ?? '—',
     updated_at: '(atualizado ao salvar)',
     published_at: agent?.published_at ?? null,

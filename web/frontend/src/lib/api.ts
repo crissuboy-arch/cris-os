@@ -145,6 +145,32 @@ export interface StudioAgent {
   created_at: string
   updated_at: string
   published_at: string | null
+  // Fase 3 fields (top-level)
+  instructions?: {
+    role?: string
+    objective?: string
+    rules?: string[]
+    restrictions?: string[]
+    output_format?: string
+    custom_prompt?: string
+  }
+  memory?: {
+    memory_type?: string
+    scope?: string[]
+    read_enabled?: boolean
+    write_enabled?: boolean
+    project?: string
+  }
+  permissions?: {
+    allowed_capabilities?: string[]
+    denied_capabilities?: string[]
+    require_confirmation?: string[]
+  }
+  tools?: {
+    internal?: string[]
+    http?: Array<Record<string, any>>
+    mcp?: Array<Record<string, any>>
+  }
 }
 
 export interface StudioCapability {
@@ -196,6 +222,32 @@ export interface StudioAgentUpdatePayload {
   }>
   config?: { timeout_ms?: number; max_iterations?: number; allow_fallback?: boolean }
   metadata?: Record<string, any>
+  // Fase 3 fields (top-level)
+  instructions?: {
+    role?: string
+    objective?: string
+    rules?: string[]
+    restrictions?: string[]
+    output_format?: string
+    custom_prompt?: string
+  }
+  memory?: {
+    memory_type?: string
+    scope?: string[]
+    read_enabled?: boolean
+    write_enabled?: boolean
+    project?: string
+  }
+  permissions?: {
+    allowed_capabilities?: string[]
+    denied_capabilities?: string[]
+    require_confirmation?: string[]
+  }
+  tools?: {
+    internal?: string[]
+    http?: Array<Record<string, any>>
+    mcp?: Array<Record<string, any>>
+  }
 }
 
 export interface StudioExecution {
