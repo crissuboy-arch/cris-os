@@ -162,7 +162,7 @@ class PluginLoader:
         # Carrega o primeiro .py como modulo
         mod_path = py_files[0]
         spec = importlib.util.spec_from_file_location(
-            f"plugins.{plugin_dir.name}", str(mod_path)
+            f"plugins.{plugin_dir.name}.plugin", str(mod_path)
         )
         if not spec or not spec.loader:
             raise ImportError(f"Nao foi possivel carregar {mod_path}")

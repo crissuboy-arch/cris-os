@@ -32,7 +32,7 @@ Modo CLASSICO (DEFAULT_AGENT=secretary):
 - **12 agentes legado**: 11 especialistas + 1 orquestrador (gerente) — modo classico
 - **5 skills**: `session-handoff` em producao; `browser-tool`, `roast`, `curriculum-builder`, `zavix-product` em scaffold
 - **CRIS OS Studio**: interface visual para criar agentes sem codigo (v0.6.0)
-- **144 testes**: todos verdes
+- **656 testes**: todos verdes
 
 Arquitetura completa em [ARQUITETURA.md](ARQUITETURA.md).
 
@@ -336,7 +336,7 @@ cris-os/
   tools/            # Ferramentas (browser, MCP)
   agent_builder/    # CRIS OS Studio: AgentBuilder, DynamicAgent, Store, API
   web/              # CRIS OS Studio: Frontend (React) + Backend (FastAPI)
-  tests/            # 144 testes
+  tests/            # 656 testes
   data/             # cris_os.db (runtime)
   scripts/          # Scripts uteis (run, preflight, test_nvidia)
 ```
@@ -393,11 +393,12 @@ Roadmap completo em [ROADMAP.md](ROADMAP.md). Arquitetura completa em [ARQUITETU
 ## Status Atual
 
 - **CRIS OS Studio v0.6.0** — interface visual completa
-- **CRIS OS v1.0** estavel.
+- **CRIS OS v1.0 RC1** — release candidate estavel.
 - **Integracao ODS** concluida (deteccao automatica + `/ods` no Telegram).
 - Integracao NVIDIA AI concluida (router 8B + geracao 70B).
 - Provedor OpenAI (fallback alternativo).
-- Telegram funcionando.
+- Telegram funcionando com confirmacao humana (botoes inline + comandos).
+- Persistencia de conversas, logs e metricas.
 - Fallback automatico entre ODS, NVIDIA, OpenAI e Ollama.
-- 144 testes, todos verdes.
+- **656 testes**, todos verdes.
 - Arquitetura congelada nesta versao.
