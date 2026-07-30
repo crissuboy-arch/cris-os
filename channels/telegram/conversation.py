@@ -2,12 +2,175 @@ from __future__ import annotations
 
 import logging
 import re
+import threading
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Any
+from datetime import datetime, timezone, timedelta
+from typing import Any, Dict, Optional
+
+from channels.telegram.utils import ConfirmationEntry, ConfirmationUtils
 
 logger = logging.getLogger(__name__)
+
+
+class ConfirmationGateway:
+    def __init__(self) -> None:
+        self.pending_confirmations: Dict[str, ConfirmationEntry] = {}
+        self._lock = threading.Lock()
+        self._client = None
+        self._history: list[dict] = []
+        self._timer = threading.Timer(60.0, self.cleanup_expired_confirmations)
+        self._timer.daemon = True
+        self._timer.start()
+
+    def create_confirmation(
+        self,
+        user_id: str,
+        step_name: str,
+        effect: str,
+        summary: str,
+        data: dict | None = None,
+    ) -> ConfirmationEntry:
+        with self._lock:
+            entry = ConfirmationUtils.create_confirmation(
+                user_id=user_id,
+                step_name=step_name,
+                effect=effect,
+                summary=summary,
+                data=data or {},
+            )
+            self.pending_confirmations[entry.confirmation_id] = entry
+            self._add_history(entry)
+            return entry
+
+    def handle_callback(
+        self,
+        user_id: str,
+        callback_data: str,
+    ) -> tuple[bool, str, ConfirmationEntry | None]:
+        parts = callback_data.split(":", 1)
+        if len(parts) != 2:
+            return False, "invalid_callback", None
+
+        action, confirmation_id = parts
+        with self._lock:
+            entry = self.pending_confirmations.get(confirmation_id)
+            if not entry:
+                return False, "confirmation_not_found", None
+            if entry.user_id != user_id:
+                return False, "unauthorized", None
+            if entry.status != "pending":
+                return False, f"already_{entry.status}", None
+            if entry.is_expired:
+                entry.status = "expired"
+                self._add_history(entry)
+                return False, "already_expired", None
+
+            if action == "approve":
+                entry.approved_by = user_id
+                entry.status = "approved"
+                self._add_history(entry)
+                return True, "approved", entry
+            elif action == "reject":
+                entry.rejected_by = user_id
+                entry.status = "rejected"
+                self._add_history(entry)
+                return True, "rejected", entry
+            else:
+                return False, "invalid_callback", None
+
+    def approve_confirmation(
+        self,
+        confirmation_id: str,
+        user_id: str,
+    ) -> tuple[bool, str, ConfirmationEntry | None]:
+        with self._lock:
+            entry = self.pending_confirmations.get(confirmation_id)
+            if not entry:
+                return False, "confirmation_not_found", None
+            if entry.user_id != user_id:
+                return False, "unauthorized", None
+            if entry.status != "pending":
+                return False, f"already_{entry.status}", None
+            if entry.is_expired:
+                entry.status = "expired"
+                return False, "expired", None
+            entry.approved_by = user_id
+            entry.status = "approved"
+            self._add_history(entry)
+            return True, "approved", entry
+
+    def reject_confirmation(
+        self,
+        confirmation_id: str,
+        user_id: str,
+    ) -> tuple[bool, str, ConfirmationEntry | None]:
+        with self._lock:
+            entry = self.pending_confirmations.get(confirmation_id)
+            if not entry:
+                return False, "confirmation_not_found", None
+            if entry.user_id != user_id:
+                return False, "unauthorized", None
+            if entry.status != "pending":
+                return False, f"already_{entry.status}", None
+            if entry.is_expired:
+                entry.status = "expired"
+                return False, "expired", None
+            entry.rejected_by = user_id
+            entry.status = "rejected"
+            self._add_history(entry)
+            return True, "rejected", entry
+
+    def get_user_pending_confirmations(
+        self,
+        user_id: str,
+    ) -> list[ConfirmationEntry]:
+        with self._lock:
+            return [
+                e for e in self.pending_confirmations.values()
+                if e.user_id == user_id and e.status == "pending"
+            ]
+
+    def cleanup_expired_confirmations(self) -> int:
+        with self._lock:
+            now = datetime.now(timezone.utc)
+            expired_ids = [
+                cid for cid, entry in self.pending_confirmations.items()
+                if entry.is_expired and entry.status == "pending"
+            ]
+            for cid in expired_ids:
+                self.pending_confirmations[cid].status = "expired"
+                self._add_history(self.pending_confirmations[cid])
+            return len(expired_ids)
+
+    def needs_confirmation(
+        self,
+        user_id: str,
+        step_name: str,
+        effect: str,
+    ) -> bool:
+        if effect != "sensitive":
+            return False
+        pending = self.get_user_pending_confirmations(user_id)
+        for p in pending:
+            if p.step_name == step_name:
+                return True
+        return False
+
+    def _add_history(self, entry: ConfirmationEntry) -> None:
+        self._history.append(
+            {
+                "confirmation_id": entry.confirmation_id,
+                "user_id": entry.user_id,
+                "step_name": entry.step_name,
+                "effect": entry.effect,
+                "status": entry.status,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+
+    def get_history(self) -> list[dict]:
+        return list(self._history)
 
 
 @dataclass
@@ -231,12 +394,14 @@ class ConversationManager:
         agents: dict[str, Any],
         general_agent: Any | None = None,
         max_history: int = 50,
+        confirmation_gateway: ConfirmationGateway | None = None,
     ):
         self.interpreter = NaturalLanguageInterpreter()
         self.selector = AgentSelector(agents, general_agent)
         self.context_manager = UserContextManager(max_history)
         self._agents = agents
         self._general = general_agent
+        self.confirmation_gateway = confirmation_gateway or ConfirmationGateway()
 
     def handle_message(self, user_id: str, text: str) -> tuple[str, str | None]:
         context = self.context_manager.get(user_id)

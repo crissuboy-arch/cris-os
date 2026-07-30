@@ -15,14 +15,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import secrets
-from datetime import datetime, timezone, timedelta
-from typing import Dict
 
 from telegram import Update
 from telegram.constants import ChatAction
 from telegram.ext import (
     Application,
+    CallbackQueryHandler,
     CommandHandler,
     ContextTypes,
     MessageHandler,
@@ -30,25 +28,13 @@ from telegram.ext import (
 )
 
 from channels.telegram.client import TelegramClient, get_telegram_client
-from channels.telegram.conversation import ConversationManager
-from channels.telegram.utils import ConfirmationUtils
+from channels.telegram.conversation import ConfirmationGateway, ConversationManager
 from core.contracts.channel import Handler
 from core.models import IncomingMessage, OutgoingMessage
 
 logger = logging.getLogger(__name__)
 
 NAME = "telegram"
-
-
-def _generate_confirmation_id() -> str:
-    """Gera um ID único para confirmação."""
-    return f"conf_{secrets.token_urlsafe(8)}"
-
-
-def _generate_confirmation_id() -> str:
-    """Gera um ID único para confirmação."""
-    _confirmation_counter["value"] += 1
-    return f"conf_{secrets.token_urlsafe(8)}"
 
 
 class TelegramChannel:
@@ -75,6 +61,11 @@ class TelegramChannel:
         self.agent_orch = agent_orchestrator
         self._client = client or get_telegram_client()
         self._conversation = conversation_manager
+        self.confirmation_gateway = (
+            conversation_manager.confirmation_gateway
+            if conversation_manager
+            else ConfirmationGateway()
+        )
         self._app: Application | None = None
 
     # ------------------------------------------------------------------
@@ -91,7 +82,10 @@ class TelegramChannel:
             "/agents - listar agentes\n"
             "/use <nome> - fixar agente\n"
             "/status - ver status da conversa\n"
-            "/clear - limpar historico"
+            "/clear - limpar historico\n"
+            "/approve <id> - aprovar confirmacao\n"
+            "/reject <id> - rejeitar confirmacao\n"
+            "/confirmations - listar confirmacoes pendentes"
         )
 
     async def _on_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -254,6 +248,144 @@ class TelegramChannel:
         await update.message.reply_text(f"```\n{texto}\n```")
 
     # ------------------------------------------------------------------
+    # Confirmacao humana
+    # ------------------------------------------------------------------
+
+    async def _on_approve(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        args = context.args or []
+        if not args:
+            await update.message.reply_text(
+                "Uso: /approve <id_da_confirmacao>\n"
+                "Use /confirmations para ver as confirmacoes pendentes."
+            )
+            return
+
+        confirmation_id = args[0]
+        user_id = str(update.effective_user.id)
+        success, status, entry = self.confirmation_gateway.approve_confirmation(
+            confirmation_id, user_id,
+        )
+
+        if success:
+            await update.message.reply_text(
+                f"✅ Confirmacao aprovada: `{confirmation_id}`",
+                parse_mode="Markdown",
+            )
+        elif status == "already_approved":
+            await update.message.reply_text("Essa confirmacao ja foi aprovada.")
+        elif status == "already_rejected":
+            await update.message.reply_text("Essa confirmacao ja foi rejeitada.")
+        elif status == "already_expired":
+            await update.message.reply_text("Essa confirmacao ja expirou.")
+        elif status == "expired":
+            await update.message.reply_text("⏰ Essa confirmacao expirou.")
+        elif status == "confirmation_not_found":
+            await update.message.reply_text(
+                f"Confirmacao '{confirmation_id}' nao encontrada.",
+            )
+        elif status == "unauthorized":
+            await update.message.reply_text(
+                "Voce nao tem permissao para aprovar essa confirmacao.",
+            )
+        else:
+            await update.message.reply_text(
+                f"Nao foi possivel aprovar: {status}",
+            )
+
+    async def _on_reject(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        args = context.args or []
+        if not args:
+            await update.message.reply_text(
+                "Uso: /reject <id_da_confirmacao>\n"
+                "Use /confirmations para ver as confirmacoes pendentes."
+            )
+            return
+
+        confirmation_id = args[0]
+        user_id = str(update.effective_user.id)
+        success, status, entry = self.confirmation_gateway.reject_confirmation(
+            confirmation_id, user_id,
+        )
+
+        if success:
+            await update.message.reply_text(
+                f"❌ Confirmacao rejeitada: `{confirmation_id}`",
+                parse_mode="Markdown",
+            )
+        elif status == "already_approved":
+            await update.message.reply_text("Essa confirmacao ja foi aprovada.")
+        elif status == "already_rejected":
+            await update.message.reply_text("Essa confirmacao ja foi rejeitada.")
+        elif status == "expired":
+            await update.message.reply_text("⏰ Essa confirmacao expirou.")
+        elif status == "confirmation_not_found":
+            await update.message.reply_text(
+                f"Confirmacao '{confirmation_id}' nao encontrada.",
+            )
+        elif status == "unauthorized":
+            await update.message.reply_text(
+                "Voce nao tem permissao para rejeitar essa confirmacao.",
+            )
+        else:
+            await update.message.reply_text(
+                f"Nao foi possivel rejeitar: {status}",
+            )
+
+    async def _on_confirmations(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        user_id = str(update.effective_user.id)
+        pending = self.confirmation_gateway.get_user_pending_confirmations(user_id)
+        if not pending:
+            await update.message.reply_text(
+                "Nenhuma confirmacao pendente.",
+            )
+            return
+
+        lines = ["*Confirmacoes Pendentes:*", ""]
+        for p in pending:
+            lines.append(f"• `{p.confirmation_id}`")
+            lines.append(f"  Ação: {p.step_name}")
+            lines.append(f"  Criado: {p.created_at.strftime('%H:%M')}")
+            lines.append("")
+        lines.append("Use /approve <id> ou /reject <id> para responder.")
+        await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+
+    async def _on_callback_query(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        query = update.callback_query
+        await query.answer()
+
+        user_id = str(query.from_user.id)
+        callback_data = query.data
+
+        success, status, entry = self.confirmation_gateway.handle_callback(
+            user_id, callback_data,
+        )
+
+        if success:
+            if status == "approved":
+                await query.edit_message_text(
+                    text=f"✅ Confirmacao aprovada: `{entry.confirmation_id}`",
+                    parse_mode="Markdown",
+                )
+            elif status == "rejected":
+                await query.edit_message_text(
+                    text=f"❌ Confirmacao rejeitada: `{entry.confirmation_id}`",
+                    parse_mode="Markdown",
+                )
+        else:
+            if status == "already_approved":
+                await query.edit_message_text("Essa confirmacao ja foi aprovada.")
+            elif status == "already_rejected":
+                await query.edit_message_text("Essa confirmacao ja foi rejeitada.")
+            elif status == "already_expired":
+                await query.edit_message_text("Essa confirmacao ja expirou.")
+            elif status == "unauthorized":
+                await query.answer("Voce nao tem permissao.", show_alert=True)
+            elif status == "confirmation_not_found":
+                await query.edit_message_text("Confirmacao nao encontrada.")
+            else:
+                await query.edit_message_text(f"Erro: {status}")
+
+    # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
 
@@ -268,6 +400,10 @@ class TelegramChannel:
         app.add_handler(CommandHandler("use", self._on_use))
         app.add_handler(CommandHandler("status", self._on_status))
         app.add_handler(CommandHandler("clear", self._on_clear))
+        app.add_handler(CommandHandler("approve", self._on_approve))
+        app.add_handler(CommandHandler("reject", self._on_reject))
+        app.add_handler(CommandHandler("confirmations", self._on_confirmations))
+        app.add_handler(CallbackQueryHandler(self._on_callback_query))
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self._on_message))
 
         logger.info("Canal Telegram iniciado. Aguardando mensagens...")
