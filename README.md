@@ -375,11 +375,10 @@ cris-os/
 
 ## Roadmap resumido
 
-- **v0.6.0** ✅ CRIS OS Studio completo (Fase 6)
-- **v0.7.0** Dashboard executivo avancado (metricas por periodo, exportacao de relatorios)
-- **v0.8.0** Multi-usuario com papeis (admin, editor, viewer)
-- **v0.9.0** Integracoes externas (Calendar, WhatsApp, etc.)
-- **v1.0.0** Producao dos 11 especialistas (atualmente em draft)
+- **v1.0.0** ✅ CRIS OS oficial - Telegram + confirmacao humana + persistencia + metrics
+- **v1.1.0** Dashboard executivo avancado (metricas por periodo, exportacao de relatorios)
+- **v1.2.0** Multi-usuario com papeis (admin, editor, viewer)
+- **v1.3.0** Integracoes externas (Calendar, WhatsApp, etc.)
 - Ferramentas reais: Google Calendar, Drive, GitHub, busca web
 - Novos canais: WhatsApp, Discord, Email, Instagram
 - Lembrete proativo e automacoes agendadas
@@ -393,7 +392,7 @@ Roadmap completo em [ROADMAP.md](ROADMAP.md). Arquitetura completa em [ARQUITETU
 ## Status Atual
 
 - **CRIS OS Studio v0.6.0** — interface visual completa
-- **CRIS OS v1.0 RC1** — release candidate estavel.
+- **CRIS OS v1.0** — versao oficial estavel.
 - **Integracao ODS** concluida (deteccao automatica + `/ods` no Telegram).
 - Integracao NVIDIA AI concluida (router 8B + geracao 70B).
 - Provedor OpenAI (fallback alternativo).

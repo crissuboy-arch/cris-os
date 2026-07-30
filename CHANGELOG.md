@@ -5,7 +5,38 @@ All notable changes to CRIS OS will be documented in this file.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [v0.6.0] - 2026-07-29
+## [v1.0.0] - 2026-07-30
+
+### CRIS OS v1.0 — Release Oficial
+
+#### Added
+- **Fase 7.1**: Canal Telegram com `ConversationManager`, `NaturalLanguageInterpreter`, `AgentSelector`, `UserContextManager`
+- **Fase 7.2**: Plugin oficial CRIS Telegram com 10 capabilities (send, reply, notify, confirm, reject, health, metrics, execute_agent, get_status, get_logs)
+- **Fase 7.3**: Conversa natural — interpretacao de linguagem natural, selecao automatica de agente por keywords, followup detection, contexto por utilizador, fallback para agente geral
+- **Fase 7.4**: Sistema completo de confirmacao humana — `ConfirmationGateway` com tokens unicos, expiracao (15 min), botoes inline (approve/reject), comandos `/approve`/`/reject`, bloqueio de reuso do mesmo token, isolamento por utilizador, cleanup automatico de expirados
+- **Fase 7.5**: Persistencia de conversas (`MemoryManager`), logs de execucao (`ActivityLogger`), metricas (`MetricEntry`), flags de contexto, formato de historico para recuperacao
+- **Fase 7.6**: Validacao ponta a ponta — 87 testes end-to-end cobrindo todos os 16 requisitos do fluxo Telegram
+
+#### Fixed
+- **PluginLoader**: modulo carregado como `plugins.{name}.plugin` (nao `plugins.{name}`) para evitar conflito com namespace packages
+- **plugins/**: adicionados `__init__.py` em todos os diretorios de plugin para resolver erros de importacao
+- **test_cris_notes.py**: 32 erros de setup + 1 falha resolvidos (importacao de modulo)
+
+#### Changed
+- README atualizado com 656 testes (vs 144 anteriores)
+- ARQUITETURA.md sincronizada com a implementacao atual
+- Roadmap atualizado com marcos pos-v1.0
+
+#### Technical Details
+- **Commits**: studio-phase-7a a studio-phase-7f, phase-8-stabilization
+- **Tests**: 656/656 pytest passing (0 failed, 0 errors)
+- **TypeScript**: clean (no errors)
+- **Build**: successful
+- **Tags**: `v1.0.0-rc1`, `v1.0.0`
+- **Python**: 3.11+
+- **Node.js**: 18+
+
+---
 
 ### CRIS OS Studio - Fase 6
 

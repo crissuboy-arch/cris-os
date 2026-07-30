@@ -1,6 +1,6 @@
-# 🏗️ ARQUITETURA — CRIS OS (v3 · Fase 100)
+# ARQUITETURA — CRIS OS (v1.0)
 
-Sistema operacional pessoal de agentes: uma **equipe de funcionários digitais**
+Sistema operacional pessoal de agentes: uma **equipe de funcionarios digitais**
 coordenada por um **gerente** (Orquestrador). Desenhado com Clean Architecture,
 SOLID, baixo acoplamento, alta coesão, **event-driven**, plugins, IA local/remota,
 MCP e Tool Calling — para **durar anos**.
