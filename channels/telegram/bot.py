@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 
 from telegram import Update
 from telegram.constants import ChatAction
@@ -29,6 +30,7 @@ from telegram.ext import (
 
 from channels.telegram.client import TelegramClient, get_telegram_client
 from channels.telegram.conversation import ConfirmationGateway, ConversationManager
+from channels.telegram.persistence import TelegramPersistenceService
 from core.contracts.channel import Handler
 from core.models import IncomingMessage, OutgoingMessage
 
@@ -54,6 +56,7 @@ class TelegramChannel:
         agent_orchestrator=None,
         client: TelegramClient | None = None,
         conversation_manager: ConversationManager | None = None,
+        persistence_service: TelegramPersistenceService | None = None,
     ) -> None:
         self.token = token
         self.handler = handler
@@ -66,6 +69,7 @@ class TelegramChannel:
             if conversation_manager
             else ConfirmationGateway()
         )
+        self.persistence = persistence_service or TelegramPersistenceService()
         self._app: Application | None = None
 
     # ------------------------------------------------------------------
@@ -91,6 +95,8 @@ class TelegramChannel:
     async def _on_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         text = update.message.text or ""
         user_id = str(update.effective_user.id)
+        t0 = time.perf_counter()
+        agent_name = None
 
         await update.message.chat.send_action(ChatAction.TYPING)
 
@@ -109,6 +115,18 @@ class TelegramChannel:
             response = await asyncio.to_thread(self.handler, incoming)
             if response:
                 await update.message.reply_text(response)
+
+        elapsed = int((time.perf_counter() - t0) * 1000)
+        self.persistence.log_execution(
+            user_id=user_id,
+            agent=agent_name or "unknown",
+            duration_ms=elapsed,
+        )
+        self.persistence.record_message_metric(
+            agent_name=agent_name or "unknown",
+            success=True,
+            duration_ms=elapsed,
+        )
 
     async def _on_agent(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         user_id = str(update.effective_user.id)
@@ -271,6 +289,9 @@ class TelegramChannel:
                 f"✅ Confirmacao aprovada: `{confirmation_id}`",
                 parse_mode="Markdown",
             )
+            self.persistence.record_confirmation_metric(
+                user_id, "approve", entry.step_name if entry else confirmation_id,
+            )
         elif status == "already_approved":
             await update.message.reply_text("Essa confirmacao ja foi aprovada.")
         elif status == "already_rejected":
@@ -311,6 +332,9 @@ class TelegramChannel:
             await update.message.reply_text(
                 f"❌ Confirmacao rejeitada: `{confirmation_id}`",
                 parse_mode="Markdown",
+            )
+            self.persistence.record_confirmation_metric(
+                user_id, "reject", entry.step_name if entry else confirmation_id,
             )
         elif status == "already_approved":
             await update.message.reply_text("Essa confirmacao ja foi aprovada.")
@@ -366,10 +390,16 @@ class TelegramChannel:
                     text=f"✅ Confirmacao aprovada: `{entry.confirmation_id}`",
                     parse_mode="Markdown",
                 )
+                self.persistence.record_confirmation_metric(
+                    user_id, "approve", entry.step_name,
+                )
             elif status == "rejected":
                 await query.edit_message_text(
                     text=f"❌ Confirmacao rejeitada: `{entry.confirmation_id}`",
                     parse_mode="Markdown",
+                )
+                self.persistence.record_confirmation_metric(
+                    user_id, "reject", entry.step_name,
                 )
         else:
             if status == "already_approved":

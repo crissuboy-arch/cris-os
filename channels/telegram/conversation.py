@@ -9,6 +9,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, Optional
 
 from channels.telegram.utils import ConfirmationEntry, ConfirmationUtils
+from channels.telegram.persistence import TelegramPersistenceService
 
 logger = logging.getLogger(__name__)
 
@@ -395,6 +396,7 @@ class ConversationManager:
         general_agent: Any | None = None,
         max_history: int = 50,
         confirmation_gateway: ConfirmationGateway | None = None,
+        persistence_service: TelegramPersistenceService | None = None,
     ):
         self.interpreter = NaturalLanguageInterpreter()
         self.selector = AgentSelector(agents, general_agent)
@@ -402,6 +404,7 @@ class ConversationManager:
         self._agents = agents
         self._general = general_agent
         self.confirmation_gateway = confirmation_gateway or ConfirmationGateway()
+        self.persistence = persistence_service
 
     def handle_message(self, user_id: str, text: str) -> tuple[str, str | None]:
         context = self.context_manager.get(user_id)
@@ -414,6 +417,7 @@ class ConversationManager:
                 self.context_manager.add_to_history(user_id, "user", text, agent.name)
                 response = agent.generate(text)
                 self.context_manager.add_to_history(user_id, "assistant", response, agent.name)
+                self._persist_exchange(user_id, text, response, agent.name)
                 return response, agent.name
 
         agent = self.selector.select(interpretation, context)
@@ -428,7 +432,21 @@ class ConversationManager:
         self.context_manager.add_to_history(user_id, "user", text, agent.name)
         response = agent.generate(text)
         self.context_manager.add_to_history(user_id, "assistant", response, agent.name)
+        self._persist_exchange(user_id, text, response, agent.name)
         return response, agent.name
+
+    def _persist_exchange(
+        self,
+        user_id: str,
+        user_text: str,
+        response: str,
+        agent_name: str | None,
+    ) -> None:
+        if not self.persistence:
+            return
+        agent = agent_name or ""
+        self.persistence.save_conversation(user_id, "user", user_text, agent)
+        self.persistence.save_conversation(user_id, "assistant", response, agent)
 
     def format_response(self, response: str, agent_name: str | None) -> str:
         if not agent_name:
@@ -447,9 +465,45 @@ class ConversationManager:
 
     def get_status(self, user_id: str) -> dict:
         ctx = self.context_manager.get(user_id)
-        return {
+        status = {
             "active_agent": ctx.active_agent,
             "last_agent": ctx.last_agent,
             "history_size": len(ctx.conversation_history),
             "available_agents": self.selector.list_agents(),
+        }
+        if self.persistence:
+            status["persisted_history"] = len(
+                self.persistence.get_conversation_history(user_id, 999),
+            )
+        return status
+
+    def restore_context(self, user_id: str, limit: int = 10) -> int:
+        if not self.persistence:
+            return 0
+        history = self.persistence.load_recent_context(user_id, limit)
+        if not history:
+            return 0
+        ctx = self.context_manager.get(user_id)
+        restored = 0
+        for msg in history:
+            entry = {
+                "role": msg.get("papel", "user"),
+                "content": msg.get("conteudo", ""),
+                "agent": msg.get("agente", ""),
+                "timestamp": msg.get("criado_em", ""),
+            }
+            if msg.get("agente"):
+                ctx.last_agent = msg["agente"]
+            ctx.conversation_history.append(entry)
+            restored += 1
+        ctx.last_activity = 0
+        return restored
+
+    def get_persistence_stats(self, user_id: str) -> dict:
+        if not self.persistence:
+            return {"enabled": False}
+        history = self.persistence.get_conversation_history(user_id)
+        return {
+            "enabled": True,
+            "total_messages": len(history),
         }
