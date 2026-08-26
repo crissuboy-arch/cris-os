@@ -2,7 +2,7 @@ import { NavLink } from 'react-router-dom'
 import {
   LayoutDashboard, Bot, MessageSquare, Brain, FolderKanban,
   Users, CheckSquare, FileText, BarChart3, Settings, ChevronLeft, Palette, Eye,
-  Zap, Server, History, Download, Bell, LogOut,
+  Zap, Server, History, Download, Bell, LogOut, Calendar, Clock, AlertTriangle,
 } from 'lucide-react'
 import { useState } from 'react'
 import { clsx } from 'clsx'
@@ -10,12 +10,17 @@ import { useAuth } from '../lib/auth'
 
 const links = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
+  { to: '/hoje', icon: Calendar, label: 'Hoje' },
+  { to: '/tarefas', icon: CheckSquare, label: 'Tarefas' },
+  { to: '/projetos', icon: FolderKanban, label: 'Projetos' },
+  { to: '/agenda', icon: Clock, label: 'Agenda' },
+  { to: '/aguardando', icon: Clock, label: 'Aguardando' },
+  { to: '/bloqueados', icon: AlertTriangle, label: 'Bloqueados' },
+  { to: '/revisao-semanal', icon: BarChart3, label: 'Revisão Semanal' },
   { to: '/agentes', icon: Bot, label: 'Agentes' },
   { to: '/chat', icon: MessageSquare, label: 'Chat' },
   { to: '/memoria', icon: Brain, label: 'Memoria' },
-  { to: '/projetos', icon: FolderKanban, label: 'Projetos' },
   { to: '/clientes', icon: Users, label: 'Clientes' },
-  { to: '/tarefas', icon: CheckSquare, label: 'Tarefas' },
   { to: '/prompts', icon: FileText, label: 'Prompts' },
   { to: '/logs', icon: BarChart3, label: 'Logs' },
   { to: '/studio', icon: Palette, label: 'Studio' },

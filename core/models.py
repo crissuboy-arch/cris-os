@@ -85,6 +85,35 @@ class AgentResult:
 
 
 @dataclass
+class MemoryItem:
+    """Um item da memoria do CRIS OS com metadados ricos.
+
+    Campos:
+      id, user_id, workspace, client, importance (0-10), origin,
+      date (data do fato), agent (quem criou), type, title, content,
+      tags, project, access_count, last_accessed, created_at, updated_at
+    """
+
+    id: str
+    user_id: str
+    workspace: str = "default"
+    client: str = ""
+    importance: int = 0
+    origin: str = "telegram"
+    date: str = ""
+    agent: str = ""
+    type: str = "note"
+    title: str = ""
+    content: str = ""
+    tags: list[str] = field(default_factory=list)
+    project: str = ""
+    access_count: int = 0
+    last_accessed: str = ""
+    created_at: str = ""
+    updated_at: str = ""
+
+
+@dataclass
 class Passage:
     """Um trecho recuperado da Base de Conhecimento (L4)."""
 

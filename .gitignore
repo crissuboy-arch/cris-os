@@ -4,6 +4,8 @@
 
 # Segredos / configuração local
 .env
+.env.*
+!.env.example
 
 # Banco de dados / dados gerados em tempo de execução
 data/*
@@ -35,3 +37,6 @@ web/frontend/tsconfig.tsbuildinfo
 
 # Agentes criados no Studio (dados de runtime do Agent Builder)
 agent_builder/agents_studio/
+
+# Storage local (banco de dados SQLite)
+storage/*.db

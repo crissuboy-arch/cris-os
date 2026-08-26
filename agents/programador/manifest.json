@@ -1,0 +1,12 @@
+{
+  "name": "programador",
+  "domain": "tecnologia",
+  "keywords": ["programador", "programacao", "codigo", "bug", "api", "dev", "desenvolvimento", "tecnico", "servidor", "python", "script", "automacao"],
+  "title": "Programador",
+  "description": "Gera codigo, corrige bugs, cria APIs e testes. Especialista em Python, JavaScript e automacoes.",
+  "enabled": true,
+  "delegate": true,
+  "status": "draft",
+  "projects": ["*"],
+  "tools": []
+}

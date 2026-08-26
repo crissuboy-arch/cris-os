@@ -46,6 +46,39 @@ _SIM = re.compile(r"^(sim|pode[ ](ser|fazer)|ok|beleza|pode ir|manda|"
 _NAO = re.compile(r"^(n[ãa]o|nada|nao|par[aá]|cancela|cancele|"
                   r"deixa|deixa quieto|depois|hora|n[ãa]o quero)$", re.IGNORECASE)
 
+# Compostos: tarefas que mencionam lancamento/venda/criacao de produto + mercado
+# Disparam o modo multi-agente (vários especialistas em paralelo).
+_COMPOSTO = re.compile(
+    r"(quero vender|vender|lancar|lançar|criar|desenvolver|"
+    r"preciso de ajuda para|ajuda com o lancamento|"
+    r"crie um|monte um|prepare um|faca um plano|faca uma estrategia|"
+    r"quero comecar|vou comecar|abrir um negocio|"
+    r"me ajude a lancar|me ajuda a lancar)",
+    re.IGNORECASE,
+)
+
+_MULTI_AGENT_PROMPT = (
+    "Voce e o coordenador de equipe do CRIS OS. A Cris fez um pedido que exige "
+    "a colaboracao de VARIOS especialistas.\n\n"
+    "Selecione OS ESPECIALISTAS necessarios, UM POR tool_call. Para cada um, "
+    "especifique uma instrucao clara e acionavel sobre o que ele deve fazer.\n\n"
+    "Boas praticas:\n"
+    "- pesquisador: pesquisa de mercado, concorrentes, tendencias\n"
+    "- social-media: estrategia de marketing, conteudo, redes sociais\n"
+    "- financeiro: viabilidade financeira, precificacao, custos\n"
+    "- atendimento: abordagem comercial, atendimento ao cliente\n"
+    "- programador: desenvolvimento de software, scripts, automacao\n"
+    "- mkvideos: producao de video, roteiro, thumbnail\n"
+    "- scalaflow: estrategia de produto, validacao de nicho\n"
+    "- curriculo: criacao de curriculo e carta de apresentacao\n"
+    "- pesquisador: pesquisa de mercado e concorrentes\n"
+    "- pinklogic: estrategia para produtos SaaS\n"
+    "- vitrinepro: divulgacao de negocio local\n"
+    "- zavix: produtos zavix\n\n"
+    "IMPORTANTE: selecione APENAS os especialistas realmente necessarios. "
+    "Nao invente agentes. Use no minimo 2, no maximo 5."
+)
+
 
 class IntentRouter:
     def __init__(self, llm, registry, fallback_router=None, fallback_agent: str = "secretary",
@@ -75,14 +108,19 @@ class IntentRouter:
         for a in self.registry.all():
             for k in (getattr(a, "keywords", None) or []):
                 if k.lower() in t:
+                    logger.info("=== [INTENT_ROUTER] KEYWORD AGENTE '%s' c/ keyword '%s' (dominio='%s') ===",
+                                a.name, k, a.domain)
                     return a
         return None
 
     def _skill_keyword_match(self, text: str):
         t = (text or "").lower()
         for s in self._enabled_skills():
-            if any(k.lower() in t for k in (getattr(s, "keywords", None) or [])):
-                return s
+            for k in (getattr(s, "keywords", None) or []):
+                if k.lower() in t:
+                    logger.info("=== [INTENT_ROUTER] KEYWORD SKILL '%s' c/ keyword '%s' (dominio='%s') ===",
+                                s.name, k, getattr(s, "domain", ""))
+                    return s
         return None
 
     # ------------------------------------------------------------------
@@ -145,6 +183,51 @@ class IntentRouter:
         return self._domain_tools(dominios) + self._agent_tools(agentes) + self._skill_tools(skills)
 
     # ------------------------------------------------------------------
+    # Multi-agente (tarefas compostas)
+    # ------------------------------------------------------------------
+    def _is_compound(self, text: str) -> bool:
+        """Detecta se o pedido exige múltiplos especialistas."""
+        return bool(_COMPOSTO.search(text.strip().lower()))
+
+    def _plan_compound(self, text: str, conversation: list[dict]) -> list[ExecutionStep]:
+        """Planeia tarefa composta: LLM escolhe vários agentes."""
+        logger.info("=== [INTENT_ROUTER] Tarefa composta detectada: '%s' ===", text[:100])
+
+        todos_agentes = self.registry.all()
+        tools = self._agent_tools(todos_agentes)
+
+        ctx_limit = min(len(conversation), self.routing_ctx)
+        base = [{"role": "system", "content": _MULTI_AGENT_PROMPT}]
+        base.extend(conversation[-ctx_limit:] if ctx_limit > 0 else [])
+        base.append({"role": "user", "content": text})
+
+        tool_calls = self._lista(base, tools)
+        if not tool_calls:
+            logger.info("=== [INTENT_ROUTER] COMPOUND: LLM nao selecionou agentes, fallback ===")
+            return self._fallback(text)
+
+        nomes_validos = {a.name for a in todos_agentes}
+        plano: list[ExecutionStep] = []
+        for tc in tool_calls:
+            if tc.name in nomes_validos:
+                instrucao = (tc.arguments or {}).get("instruction") or text
+                plano.append(ExecutionStep(
+                    name=tc.name, type=ExecutionType.AGENT, instruction=instrucao,
+                ))
+                logger.info("=== [INTENT_ROUTER] COMPOUND: agente '%s' incluido no plano ===", tc.name)
+            else:
+                logger.warning("=== [INTENT_ROUTER] COMPOUND: agente '%s' nao encontrado, ignorado ===", tc.name)
+
+        if not plano:
+            logger.info("=== [INTENT_ROUTER] COMPOUND: nenhum agente valido, fallback ===")
+            return self._fallback(text)
+
+        passos_str = "; ".join(f"{p.name}({p.type.value})" for p in plano)
+        logger.info("=== [INTENT_ROUTER] COMPOUND: plano com %d passo(s): %s ===",
+                    len(plano), passos_str)
+        return plano
+
+    # ------------------------------------------------------------------
     # Steps
     # ------------------------------------------------------------------
     def _agent_step(self, nome: str, args: dict | None, text: str) -> ExecutionStep:
@@ -186,6 +269,13 @@ class IntentRouter:
             )]
         t.end("fast_path")
 
+        # --- Multi-agente: pedido composto que precisa de varios especialistas.
+        #     Antes do keyword match para que frases como "lancar o ScalaFlow"
+        #     ou "crie um SaaS para imobiliarias" nao sejam capturadas por
+        #     keyword unico.
+        if self._is_compound(text):
+            return self._plan_compound(text, conversation)
+
         # --- Fast path 3: comando com keyword de skill ou agente → roteia direto.
         skill = self._skill_keyword_match(text)
         if skill is not None:
@@ -220,7 +310,9 @@ class IntentRouter:
         nome = escolha.name
 
         if self.registry.get(nome) is not None:
-            logger.info("=== [INTENT_ROUTER] Agente na 1ª chamada: '%s' ===", nome)
+            ag_info = self.registry.get(nome)
+            logger.info("=== [INTENT_ROUTER] Agente na 1ª chamada: '%s' (dominio='%s', status='%s') ===",
+                        nome, ag_info.domain, ag_info.status)
             return [self._agent_step(nome, escolha.arguments, text)]
 
         if self._skill_by_name(nome) is not None:
@@ -245,7 +337,11 @@ class IntentRouter:
             t.end("2.provider_call")
 
             if plano:
-                logger.info("=== [INTENT_ROUTER] Dominio '%s' -> %d passo(s) ===", nome, len(plano))
+                passos_str = "; ".join(
+                    f"{p.name}({p.type.value})" for p in plano
+                )
+                logger.info("=== [INTENT_ROUTER] Dominio '%s' -> %d passo(s): %s ===",
+                            nome, len(plano), passos_str)
                 return plano
 
         return self._fallback(text)
@@ -272,8 +368,11 @@ class IntentRouter:
     def _fallback(self, text: str) -> list[ExecutionStep]:
         skill = self._skill_keyword_match(text)
         if skill is not None:
-            logger.info("=== [INTENT_ROUTER] FALLBACK: skill keyword -> '%s' ===", skill.name)
+            logger.info("=== [INTENT_ROUTER] FALLBACK (skill_keyword): skill='%s' (dominio='%s') ===",
+                        skill.name, getattr(skill, "domain", ""))
             return [self._skill_step(skill.name, {})]
         alvo = self.fallback_router.route(text) if self.fallback_router else self.fallback_agent
-        logger.info("=== [INTENT_ROUTER] FALLBACK: agente '%s' ===", alvo)
+        alvo_info = self.registry.get(alvo)
+        dom = alvo_info.domain if alvo_info else "?"
+        logger.info("=== [INTENT_ROUTER] FALLBACK (sem match): agente='%s' (dominio='%s') ===", alvo, dom)
         return [ExecutionStep(name=alvo, type=ExecutionType.AGENT, instruction=text)]

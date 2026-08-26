@@ -21,7 +21,8 @@ from core.registry import discover_manifests
 logger = logging.getLogger(__name__)
 
 
-def carregar_agentes(agents_dir: Path, llm) -> list[BaseAgent]:
+def carregar_agentes(agents_dir: Path, llm,
+                     tool_executor=None) -> list[BaseAgent]:
     """Monta a lista de agentes delegáveis a partir dos manifests."""
     agentes: list[BaseAgent] = []
 
@@ -47,12 +48,22 @@ def carregar_agentes(agents_dir: Path, llm) -> list[BaseAgent]:
                 description=dados.get("description", dados["name"]),
                 system_prompt=system_prompt,
                 llm=llm,
-                projects=dados.get("projects", []),  # escopo de memória (L2)
+                projects=dados.get("projects", []),
                 status=dados.get("status", "draft"),
                 domain=dados.get("domain", ""),
                 keywords=dados.get("keywords", []),
+                tool_executor=tool_executor,
+                tools_allowed=dados.get("tools_allowed"),
+                tools_forbidden=dados.get("tools_forbidden"),
+                tool_timeout=dados.get("tool_timeout", 60.0),
             )
         )
+
+        if tool_executor:
+            ferr = dados.get("tools_allowed", "todas")
+            proib = dados.get("tools_forbidden", [])
+            logger.info("Agente '%s' | ferramentas permitidas=%s proibidas=%s",
+                        dados["name"], ferr, proib)
 
     logger.info("Agentes carregados: %s", ", ".join(a.name for a in agentes) or "(nenhum)")
     return agentes

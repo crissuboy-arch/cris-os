@@ -50,11 +50,15 @@ class Gateway:
                      incoming.channel, incoming.sender_id, texto[:120])
 
         try:
+            t_orch_start = time.perf_counter()
             resposta = self.orchestrator.handle(incoming)
-            total_ms = (time.perf_counter() - t0) * 1000
+            t_orch_end = time.perf_counter()
+            total_ms = (t_orch_end - t0) * 1000
+            orch_ms = (t_orch_end - t_orch_start) * 1000
+            logger.info("=== [PERF] Gateway: autorizacao=%.1fms  orquestrador=%.1fms  total=%.0fms ===",
+                        (t_orch_start - t0) * 1000, orch_ms, total_ms)
             logger.info("=== [GATEWAY] Resposta ENVIADA para %s:%s: '%s' ===",
                         incoming.channel, incoming.sender_id, resposta[:200])
-            logger.info("=== [TIMING] Tempo total (Gateway): %.0fms ===", total_ms)
             return resposta
         except Exception as exc:  # noqa: BLE001 - nunca derrubar o canal
             logger.exception("=== [GATEWAY] Erro no orquestrador ===")

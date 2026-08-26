@@ -21,6 +21,13 @@ import StudioMcp from './pages/studio/StudioMcp'
 import StudioVersioning from './pages/studio/StudioVersioning'
 import StudioExportImport from './pages/studio/StudioExportImport'
 import StudioNotifications from './pages/studio/StudioNotifications'
+import Hoje from './pages/Hoje'
+import Tarefas from './pages/Tarefas'
+import Projetos from './pages/Projetos'
+import Agenda from './pages/Agenda'
+import Aguardando from './pages/Aguardando'
+import Bloqueados from './pages/Bloqueados'
+import RevisaoSemanal from './pages/RevisaoSemanal'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth()
@@ -54,6 +61,13 @@ export default function App() {
           <Route path="/studio/versioning" element={<StudioVersioning />} />
           <Route path="/studio/export" element={<StudioExportImport />} />
           <Route path="/studio/notifications" element={<StudioNotifications />} />
+          <Route path="/hoje" element={<Hoje />} />
+          <Route path="/tarefas" element={<Tarefas />} />
+          <Route path="/projetos" element={<Projetos />} />
+          <Route path="/agenda" element={<Agenda />} />
+          <Route path="/aguardando" element={<Aguardando />} />
+          <Route path="/bloqueados" element={<Bloqueados />} />
+          <Route path="/revisao-semanal" element={<RevisaoSemanal />} />
         </Route>
       </Routes>
     </AuthProvider>

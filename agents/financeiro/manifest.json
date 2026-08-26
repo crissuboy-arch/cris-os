@@ -1,7 +1,7 @@
 {
   "name": "financeiro",
   "domain": "financeiro",
-  "keywords": ["financeiro", "venda", "vendas", "receita", "despesa", "lucro", "meta"],
+  "keywords": ["financeiro", "venda", "vendas", "receita", "despesa", "lucro", "meta", "faturamento", "caixa", "margem", "custo", "investimento", "lucro liquido", "fluxo de caixa", "comissao", "imposto", "ticket medio", "ROI", "precificacao"],
   "title": "Financeiro",
   "description": "Controle financeiro: receitas, despesas, metas, lucro e investimentos. Nunca inventa valores.",
   "enabled": true,

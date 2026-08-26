@@ -44,7 +44,7 @@ def startup():
 
 
 # Importa rotas
-from web.backend.routes import system, agents, chat, memory, clients, projects, tasks, prompts, logs, settings, studio
+from web.backend.routes import system, agents, chat, memory, clients, projects, tasks, prompts, logs, settings, studio, ceo, prospector
 
 app.include_router(system.router, prefix="/api", tags=["Sistema"])
 app.include_router(agents.router, prefix="/api", tags=["Agentes"])
@@ -57,6 +57,8 @@ app.include_router(prompts.router, prefix="/api", tags=["Prompts"])
 app.include_router(logs.router, prefix="/api", tags=["Logs"])
 app.include_router(settings.router, prefix="/api", tags=["Configuracoes"])
 app.include_router(studio.router, prefix="/api", tags=["Studio"])
+app.include_router(ceo.router, prefix="/api", tags=["CEO Mode"])
+app.include_router(prospector.router, prefix="/api", tags=["Prospector"])
 
 # Serve frontend estatico em producao
 FRONTEND_DIST = RAIZ / "web" / "frontend" / "dist"

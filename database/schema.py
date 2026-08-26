@@ -60,11 +60,25 @@ CREATE TABLE IF NOT EXISTS tarefas (
     prioridade      TEXT DEFAULT 'media',
     prazo           TEXT DEFAULT '',
     responsavel     TEXT DEFAULT '',
+    agente          TEXT DEFAULT '',
     status          TEXT DEFAULT 'pendente',
     projeto_id      INTEGER DEFAULT NULL,
     criado_em       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     atualizado_em   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (projeto_id) REFERENCES projetos(id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS lembretes (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    usuario_id      TEXT NOT NULL,
+    titulo          TEXT NOT NULL,
+    data_hora       TEXT NOT NULL,
+    recorrencia     TEXT DEFAULT '',
+    tarefa_id       INTEGER DEFAULT NULL,
+    status          TEXT DEFAULT 'ativo',
+    criado_em       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    atualizado_em   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (tarefa_id) REFERENCES tarefas(id) ON DELETE SET NULL
 );
 
 CREATE TABLE IF NOT EXISTS prompts_favoritos (
@@ -112,13 +126,57 @@ CREATE TABLE IF NOT EXISTS contexto_permanente (
     valor       TEXT NOT NULL,
     UNIQUE(usuario_id, chave)
 );
+
+CREATE TABLE IF NOT EXISTS objetivos (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    usuario_id      TEXT NOT NULL,
+    objetivo        TEXT NOT NULL,
+    tipo            TEXT DEFAULT 'geral',
+    projeto_id      INTEGER DEFAULT NULL,
+    plano           TEXT DEFAULT '{}',
+    status          TEXT DEFAULT 'planejado',
+    criado_em       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    atualizado_em   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (projeto_id) REFERENCES projetos(id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS dependencias (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    usuario_id  TEXT NOT NULL,
+    tarefa_id   INTEGER NOT NULL,
+    depende_de  INTEGER NOT NULL,
+    FOREIGN KEY (tarefa_id) REFERENCES tarefas(id) ON DELETE CASCADE,
+    FOREIGN KEY (depende_de) REFERENCES tarefas(id) ON DELETE CASCADE
+);
 """
 
 TABELAS = [
     "conversas", "preferencias", "clientes", "projetos",
-    "tarefas", "prompts_favoritos", "configuracoes",
+    "tarefas", "lembretes", "prompts_favoritos", "configuracoes",
     "logs_atividade", "contexto_recente", "contexto_permanente",
+    "objetivos", "dependencias",
 ]
+
+
+def _colunas(conn, tabela: str) -> list[str]:
+    cur = conn.execute(f"PRAGMA table_info({tabela})")
+    return [r[1] for r in cur.fetchall()]
+
+
+def migrar() -> list[str]:
+    """Aplica migracoes incrementais em bancos existentes."""
+    conn = get_connection()
+    aplicadas = []
+
+    cols = _colunas(conn, "tarefas")
+    if "agente" not in cols:
+        conn.execute("ALTER TABLE tarefas ADD COLUMN agente TEXT DEFAULT ''")
+        aplicadas.append("tarefas.agente")
+
+    conn.commit()
+    if aplicadas:
+        logger.info("Migracoes aplicadas: %s", ", ".join(aplicadas))
+    return aplicadas
 
 
 def criar_tabelas() -> list[str]:
@@ -129,5 +187,6 @@ def criar_tabelas() -> list[str]:
         if stmt:
             conn.execute(stmt)
     conn.commit()
+    migrar()
     logger.info("Tabelas criadas/verificadas: %s", ", ".join(TABELAS))
     return TABELAS

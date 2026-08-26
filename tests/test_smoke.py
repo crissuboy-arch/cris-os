@@ -167,11 +167,11 @@ def test_lease_eleicao_de_lider(tmp_path: Path):
     assert ops.current().owner == "maquina-A"
 
 
-def test_loader_11_agentes():
+def test_loader_12_agentes():
     agentes = carregar_agentes(RAIZ / "agents", llm=FakeLLM())
     nomes = {a.name for a in agentes}
     assert "secretary" in nomes and "orchestrator" not in nomes
-    assert len(agentes) == 11
+    assert len(agentes) == 13
 
 
 def test_cognicao_dominio_e_eventos():

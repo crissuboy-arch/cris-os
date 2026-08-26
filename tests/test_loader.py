@@ -1,6 +1,6 @@
 """
 Caracterização (Onda 1 / B0) — carregar_agentes.
-Fixa: 11 agentes, pula 'orchestrator', escopo/status presentes.
+Fixa: 12 agentes, pula 'orchestrator', escopo/status presentes.
 Protege a inversão de dependência (N4/B4) e a unificação de descoberta (N2/B3).
 """
 
@@ -23,12 +23,12 @@ class _LLM:
         return None
 
 
-def test_loads_11_skips_orchestrator():
+def test_loads_12_skips_orchestrator():
     agentes = carregar_agentes(RAIZ / "agents", llm=_LLM())
     nomes = {a.name for a in agentes}
     assert "secretary" in nomes
     assert "orchestrator" not in nomes
-    assert len(agentes) == 11
+    assert len(agentes) == 13
 
 
 def test_agents_have_scope_and_status():
@@ -46,7 +46,7 @@ def test_agents_load_domain():
 
 
 if __name__ == "__main__":
-    test_loads_11_skips_orchestrator()
+    test_loads_12_skips_orchestrator()
     test_agents_have_scope_and_status()
     test_agents_load_domain()
     print("OK - test_loader")

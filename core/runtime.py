@@ -48,11 +48,13 @@ from core.gateway import Gateway
 from core.plugins import PluginManager
 from core.router import Router
 from tools.browser import BrowserTarget
+from tools.executor import create_executor
 from llm.nvidia import NVIDIAProvider
 from llm.ollama import OllamaProvider
 from llm.openai_compat import OpenAICompatProvider
 from llm.router import LLMRouter
 from services.ods_client import ODSClient
+from services.ceo_mode import CeoMode
 from memory import (
     ConversationMemory,
     FacadeSkillMemory,
@@ -63,8 +65,10 @@ from memory import (
     TemporaryMemory,
 )
 from core.skills import SkillRegistry
+from memory.memory_system import MemorySystem
 from memory.seed import seed_if_empty
 from storage import SQLiteMemory, SQLiteOpsStore
+from storage.sqlite_memory_store import SQLiteMemoryStore
 
 logger = logging.getLogger(__name__)
 
@@ -184,6 +188,11 @@ def build(check_llm: bool = True) -> CrisOS:
     seed_if_empty(permanent, project)
     facade = MemoryFacade(conversation, temporary, project, permanent, knowledge_base)
 
+    # 3b) MemorySystem: nova camada de memoria com metadados ricos.
+    memory_store = SQLiteMemoryStore(str(settings.DB_PATH))
+    memory_system = MemorySystem(memory_store)
+    logger.info("MemorySystem ativo: tabela 'memoria' pronta.")
+
     # 4) ODS Client: deteccao e monitoramento do Osmantic Deployment System.
     ods_client = ODSClient(
         enabled=settings.ODS_ENABLED,
@@ -289,11 +298,17 @@ def build(check_llm: bool = True) -> CrisOS:
                     f"Rode 'ollama serve' e baixe o modelo: 'ollama pull {settings.OLLAMA_MODEL}'."
                 )
 
-    # 5) Plugins: carregar os agentes (composition root) e injetar no manager.
+    # 5a) Tool Executor: ferramentas de sistema para os agentes.
+    tool_executor = create_executor()
+    logger.info("ToolExecutor criado com %d ferramentas: %s",
+                len(tool_executor.list_tools()), ", ".join(tool_executor.list_tools()))
+
+    # 5b) Plugins: carregar os agentes (composition root) e injetar no manager.
     #    Agentes usam o modelo de geração (NVIDIA_GENERATION_MODEL ou Ollama como fallback).
     llm_gen = llm.for_role("generation") if "generation" in llm.policy else llm
     plugins = PluginManager()
-    registry = plugins.register_agents(carregar_agentes(settings.AGENTS_DIR, llm_gen))
+    registry = plugins.register_agents(carregar_agentes(settings.AGENTS_DIR, llm_gen,
+                                                        tool_executor=tool_executor))
     if not registry.all():
         raise StartupError("Nenhum agente encontrado em agents/.")
 
@@ -365,11 +380,15 @@ def build(check_llm: bool = True) -> CrisOS:
     # 10) Gateway + canais.
     allowed = {settings.TELEGRAM_ALLOWED_USER_ID} if settings.TELEGRAM_ALLOWED_USER_ID else set()
     gateway = Gateway(handler, allowed_senders=allowed)
+    ceo_mode = CeoMode(memory=memory_system)
     canais = [TelegramChannel(
         settings.TELEGRAM_BOT_TOKEN,
         gateway.handle,
         ods_client=ods_client if settings.ODS_ENABLED else None,
         agent_orchestrator=agent_orchestrator,
+        agent_registry=registry,
+        memory_system=memory_system,
+        ceo_mode=ceo_mode,
     )]
 
     modo = f"auto ({len(agent_orchestrator.agents)} especialistas)" if agent_orchestrator else settings.DEFAULT_AGENT

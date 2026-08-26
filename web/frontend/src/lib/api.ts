@@ -86,6 +86,29 @@ export const api = {
     request<any>(`/tarefas/${id}/concluir`, { method: 'POST' }),
   excluirTarefa: (id: number) =>
     request<any>(`/tarefas/${id}`, { method: 'DELETE' }),
+  tarefasHoje: () => request<any[]>('/tarefas/hoje'),
+  tarefasPorStatus: (status: string) => request<any[]>(`/tarefas/status/${status}`),
+  tarefasAtrasadas: () => request<any[]>('/tarefas/atrasadas'),
+  cancelarTarefa: (id: number) =>
+    request<any>(`/tarefas/${id}/cancelar`, { method: 'POST' }),
+  delegarTarefa: (id: number, responsavel: string, agente: string) =>
+    request<any>(`/tarefas/${id}/delegar?responsavel=${responsavel}&agente=${agente}`, { method: 'POST' }),
+  planejarDia: (data?: string, prioridades?: string[]) =>
+    request<any>('/planejamento/diario', {
+      method: 'POST',
+      body: JSON.stringify({ data, prioridades }),
+    }),
+  revisaoSemanal: () => request<any>('/revisao/semanal'),
+
+  // Lembretes
+  lembretes: () => request<any[]>('/lembretes'),
+  criarLembrete: (data: any) =>
+    request<any>('/lembretes', { method: 'POST', body: JSON.stringify(data) }),
+  cancelarLembrete: (id: number) =>
+    request<any>(`/lembretes/${id}/cancelar`, { method: 'POST' }),
+  lembretesDevidos: () => request<any[]>('/lembretes/devidos'),
+  processarLembretes: () =>
+    request<any>('/lembretes/processar', { method: 'POST' }),
 
   // Prompts
   prompts: (categoria = '') =>
@@ -121,6 +144,23 @@ export const api = {
     }),
   resetarConfig: () =>
     request<any>('/configuracoes/resetar', { method: 'POST' }),
+
+  // CEO Mode
+  ceoExecutar: (objetivo: string, confirmado = false) =>
+    request<any>('/ceo/executar', {
+      method: 'POST',
+      body: JSON.stringify({ objetivo, confirmado }),
+    }),
+  ceoPlanejar: (objetivo: string) =>
+    request<any>('/ceo/planejar', {
+      method: 'POST',
+      body: JSON.stringify({ objetivo }),
+    }),
+  ceoObjetivos: () => request<any[]>('/ceo/objetivos'),
+  ceoObjetivo: (id: number) => request<any>(`/ceo/objetivos/${id}`),
+  ceoProgresso: (id: number) => request<any>(`/ceo/objetivos/${id}/progresso`),
+  ceoProximaAcao: (id: number) => request<any>(`/ceo/objetivos/${id}/proxima-acao`),
+  ceoConfirmacoes: (id: number) => request<any[]>(`/ceo/objetivos/${id}/confirmacoes`),
 }
 
 export interface StudioAgent {
