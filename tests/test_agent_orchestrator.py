@@ -262,8 +262,9 @@ def test_discover_agents_carrega_todos():
     assert nomes == {
         "marketing", "social_media", "vendas", "atendimento",
         "programador", "pesquisador", "copywriter", "produtividade",
+        "scalaflow_intel",
     }
-    assert len(agentes) == 8
+    assert len(agentes) == 9
 
 
 def test_discover_general_agent():

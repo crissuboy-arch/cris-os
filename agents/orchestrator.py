@@ -33,6 +33,17 @@ _FOLLOWUP_WORDS = {
 
 _FOLLOWUP_THRESHOLD = 5
 
+# Comandos do ScalaFlow sao 100% deterministicos (tools/scalaflow_tools.py nao
+# usa LLM). Por isso sao interceptados ANTES de tentar o roteador via LLM
+# (Ollama) -- evita esperar/errar no Ollama para um comando que nunca
+# precisou dele.
+_SCALAFLOW_KEYWORDS = frozenset({
+    "scalaflow", "vencedor", "vencedores", "minerado", "minerados",
+    "oferta", "ofertas", "top", "anuncio", "anuncios", "anúncio",
+    "anúncios", "quente", "quentes", "favorito", "favoritos",
+    "escalado", "escalados", "escalada", "escaladas",
+})
+
 
 def _model_name(llm: object) -> str:
     """Extrai o nome do modelo do provedor LLM."""
@@ -190,12 +201,29 @@ class AgentOrchestrator:
                 )
                 return self.agents[ultimo]
 
-        # 3) Roteamento via LLM + keyword fallback
+        # 3) Interceptacao deterministica do ScalaFlow (sem chamar o LLM)
+        if "scalaflow_intel" in self.agents and self._eh_comando_scalaflow(texto):
+            logger.info(
+                "=== [ORCHESTRATOR] Interceptacao deterministica: 'scalaflow_intel' "
+                "(sem passar pelo LLM/Ollama) ===",
+            )
+            return self.agents["scalaflow_intel"]
+
+        # 4) Roteamento via LLM + keyword fallback
         nome_agente = self._rotear(texto)
         if nome_agente and nome_agente in self.agents:
             return self.agents[nome_agente]
 
         return None
+
+    @staticmethod
+    def _eh_comando_scalaflow(texto: str) -> bool:
+        """Detecta comandos do ScalaFlow por palavra-chave (sem LLM)."""
+        palavras = set(texto.lower().split())
+        if palavras & _SCALAFLOW_KEYWORDS:
+            return True
+        texto_lower = texto.lower()
+        return any(kw in texto_lower for kw in _SCALAFLOW_KEYWORDS)
 
     @staticmethod
     def _eh_followup(texto: str) -> bool:
@@ -259,6 +287,7 @@ class AgentOrchestrator:
             (["campanha", "branding", "divulgacao", "midia"], "marketing"),
             (["rotina", "agenda", "planejar", "produtividade",
               "tarefas", "prioridade", "checklist", "pomodoro"], "produtividade"),
+            (list(_SCALAFLOW_KEYWORDS), "scalaflow_intel"),
         ]
 
         multi: list[tuple[str, str]] = [
@@ -269,6 +298,11 @@ class AgentOrchestrator:
             ("google ads", "marketing"),
             ("facebook ads", "marketing"),
             ("problema com", "atendimento"),
+            ("produto quente", "scalaflow_intel"),
+            ("produtos quentes", "scalaflow_intel"),
+            ("top 10", "scalaflow_intel"),
+            ("top produtos", "scalaflow_intel"),
+            ("produto vencedor", "scalaflow_intel"),
         ]
 
         for keywords, agent_name in regras:
@@ -306,6 +340,8 @@ class AgentOrchestrator:
             "suporte": "atendimento",
             "vendedor": "vendas",
             "comercial": "vendas",
+            "scalaflow": "scalaflow_intel",
+            "produtos": "scalaflow_intel",
         }
         n = nome.strip().lower().replace("-", "_")
         return aliases.get(n, n)

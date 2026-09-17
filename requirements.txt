@@ -9,6 +9,12 @@ python-dotenv==1.0.1
 # Requisicoes HTTP (usado para falar com o Ollama)
 requests==2.32.3
 
+# Verificacao TLS via CA store do sistema operacional (necessario em maquinas
+# com antivirus que faz inspecao HTTPS, ex.: Avast Web/Mail Shield -- sem
+# isso, requests/urllib3 rejeita o certificado por nao confiar na CA local
+# do antivirus, mesmo ela ja sendo confiavel para o Windows/curl).
+truststore>=0.9
+
 # Bot do Telegram (API assincrona moderna)
 python-telegram-bot==21.6
 

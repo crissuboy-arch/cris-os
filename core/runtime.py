@@ -358,7 +358,7 @@ def build(check_llm: bool = True) -> CrisOS:
                 "(modelo: %s via %s)",
                 n_agentes, len(especialistas), settings.OLLAMA_MODEL, ollama_host,
             )
-            handler = agent_orchestrator.handle
+            handler = agent_orchestrator
         else:
             logger.warning("Nenhum agente especialista carregado. Usando orquestrador classico.")
 

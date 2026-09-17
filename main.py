@@ -42,8 +42,14 @@ def main() -> int:
                 s.ODS_BASE_URL if s.ODS_ENABLED else "-",
                 s.ODS_FALLBACK_PROVIDER if s.ODS_ENABLED else "-")
 
+    if not s.REQUIRE_LLM_ON_STARTUP:
+        logger.warning(
+            "REQUIRE_LLM_ON_STARTUP=false: iniciando mesmo se nenhum LLM responder "
+            "(agentes com ferramenta deterministica, ex.: scalaflow_intel, funcionam sem LLM)."
+        )
+
     try:
-        app = build()
+        app = build(check_llm=s.REQUIRE_LLM_ON_STARTUP)
     except StartupError as exc:
         logger.error("Nao foi possivel iniciar:\n%s", exc)
         return 1

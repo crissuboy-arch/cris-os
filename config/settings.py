@@ -77,6 +77,13 @@ class Settings:
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO").strip().upper()
     MEMORY_CONTEXT_MESSAGES: int = _get_int("MEMORY_CONTEXT_MESSAGES", 12)
 
+    # Se False, o startup NAO exige um LLM (Ollama/NVIDIA/OpenAI) respondendo:
+    # so registra WARNING e segue. O Telegram sobe normalmente; agentes com
+    # ferramenta deterministica (ex.: scalaflow_intel) funcionam sem LLM, e o
+    # roteamento cai no fallback por palavra-chave. Default True preserva o
+    # comportamento atual (falha cedo se nenhum provedor responder).
+    REQUIRE_LLM_ON_STARTUP: bool = _get_bool("REQUIRE_LLM_ON_STARTUP", True)
+
     # Tempo de vida do "lease" de líder (eleição p/ 2ª máquina / failover).
     LEASE_TTL_SECONDS: int = _get_int("LEASE_TTL_SECONDS", 60)
 
@@ -93,6 +100,13 @@ class Settings:
     OPENAI_BASE_URL: str = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
     OPENAI_MODEL: str = os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip()
     OPENAI_TIMEOUT: int = _get_int("OPENAI_TIMEOUT", 120)
+
+    # --- ScalaFlow (Supabase) ---
+    # SERVICE_KEY, nao a "anon key": a tabela produtos_minerados tem RLS
+    # (auth.uid() = user_id) e o CRIS OS nao loga como usuario nenhum.
+    # Com a anon key o resultado viria sempre vazio, sem erro aparecer.
+    SUPABASE_URL: str = os.getenv("SUPABASE_URL", "").strip()
+    SUPABASE_SERVICE_KEY: str = os.getenv("SUPABASE_SERVICE_KEY", "").strip()
 
     # --- Fallback: Google Gemini ---
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "").strip()
