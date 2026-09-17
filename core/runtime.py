@@ -153,6 +153,48 @@ def _configurar_nvidia() -> tuple:
     return nvidia_router, nvidia_gen
 
 
+def _configurar_openrouter(tier: str, model_override: str, timeout: int):
+    """
+    Configura um OpenRouterProvider para uma camada de custo, se
+    OPENROUTER_API_KEY estiver preenchida. Nunca levanta excecao -- devolve
+    None em qualquer falha (chave ausente/placeholder, API fora do ar, etc.),
+    porque o OpenRouter e sempre OPCIONAL: o CRIS OS precisa continuar de pe
+    (com os comandos deterministicos funcionando) mesmo sem ele.
+    """
+    from llm.openrouter import (
+        MODELO_PADRAO_ECONOMICO,
+        MODELO_PADRAO_INTELIGENTE,
+        MODELO_PADRAO_PREMIUM,
+        OpenRouterProvider,
+    )
+
+    if not settings.OPENROUTER_API_KEY or settings.OPENROUTER_API_KEY == "COLE_SUA_CHAVE_AQUI":
+        return None
+
+    padroes = {
+        "economico": MODELO_PADRAO_ECONOMICO,
+        "inteligente": MODELO_PADRAO_INTELIGENTE,
+        "premium": MODELO_PADRAO_PREMIUM,
+    }
+    model = model_override or padroes[tier]
+
+    try:
+        provider = OpenRouterProvider(
+            api_key=settings.OPENROUTER_API_KEY,
+            model=model,
+            base_url=settings.OPENROUTER_BASE_URL,
+            timeout=timeout,
+            tier=tier,
+        )
+        if not provider.is_alive():
+            logger.warning("OpenRouter (tier=%s, modelo=%s) nao respondeu ao healthcheck.", tier, model)
+            return None
+        return provider
+    except Exception as exc:
+        logger.warning("Falha ao configurar OpenRouter (tier=%s): %s", tier, exc)
+        return None
+
+
 def _planner_prompt(registry) -> str:
     base = ""
     if settings.ORCHESTRATOR_PROMPT_FILE.exists():
@@ -344,7 +386,34 @@ def build(check_llm: bool = True) -> CrisOS:
     agent_orchestrator = None
     if settings.DEFAULT_AGENT == "auto":
         # Usa o provedor local (Ollama via ODS) para os agentes especialistas.
+        # Isso NUNCA afeta comandos deterministicos (scalaflow_intel,
+        # opportunity_analyst): a interceptacao por palavra-chave em
+        # agents/orchestrator.py acontece ANTES de qualquer chamada a este
+        # LLM. Fase 2.5: se o Ollama nao estiver respondendo, usa o
+        # OpenRouter (camada INTELIGENTE) como alternativa para os agentes
+        # que realmente precisam de raciocinio/geracao (ex.: o agente geral
+        # de conversa) -- se o OpenRouter tambem nao estiver configurado ou
+        # disponivel, mantem o Ollama mesmo offline (comportamento igual ao
+        # de antes desta fase: os agentes deterministicos continuam
+        # funcionando; so a geracao livre fica sem resposta real).
         local_llm = ollama
+        if not ollama.is_alive():
+            openrouter_llm = _configurar_openrouter(
+                tier="inteligente",
+                model_override=settings.OPENROUTER_MODEL_INTELIGENTE,
+                timeout=settings.OPENROUTER_TIMEOUT,
+            )
+            if openrouter_llm:
+                logger.info(
+                    "Ollama offline; usando OpenRouter (%s) para os agentes especialistas.",
+                    openrouter_llm.model,
+                )
+                local_llm = openrouter_llm
+            else:
+                logger.warning(
+                    "Ollama offline e OpenRouter nao configurado/indisponivel -- "
+                    "agentes deterministicos continuam funcionando; geracao livre nao."
+                )
         especialistas = discover_agents(local_llm)
         agente_geral = discover_general_agent(local_llm)
         if especialistas:
@@ -353,10 +422,11 @@ def build(check_llm: bool = True) -> CrisOS:
                 general_agent=agente_geral,
             )
             n_agentes = len(especialistas) + (1 if agente_geral else 0)
+            nome_llm = getattr(local_llm, "_provider_name", None) or settings.OLLAMA_MODEL
             logger.info(
                 "AgentOrchestrator ativo com %d agentes (%d especialistas + geral) "
-                "(modelo: %s via %s)",
-                n_agentes, len(especialistas), settings.OLLAMA_MODEL, ollama_host,
+                "(modelo: %s)",
+                n_agentes, len(especialistas), nome_llm,
             )
             handler = agent_orchestrator
         else:

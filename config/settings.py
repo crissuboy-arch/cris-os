@@ -101,6 +101,20 @@ class Settings:
     OPENAI_MODEL: str = os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip()
     OPENAI_TIMEOUT: int = _get_int("OPENAI_TIMEOUT", 120)
 
+    # --- OpenRouter (IA remota, Fase 2.5) ---
+    # So usado para tarefas que precisam de raciocinio/analise/geracao.
+    # Consultas deterministicas (scalaflow_intel, filtros do Supabase) NUNCA
+    # passam por aqui. Ver llm/openrouter.py.
+    OPENROUTER_API_KEY: str = os.getenv("OPENROUTER_API_KEY", "").strip()
+    OPENROUTER_BASE_URL: str = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1").rstrip("/")
+    OPENROUTER_TIMEOUT: int = _get_int("OPENROUTER_TIMEOUT", 60)
+    # Modelos por camada de custo (verificados no catalogo real do
+    # OpenRouter -- ver llm/openrouter.py para como foram escolhidos e
+    # quando isso foi conferido). Vazio = usa o padrao do codigo.
+    OPENROUTER_MODEL_ECONOMICO: str = os.getenv("OPENROUTER_MODEL_ECONOMICO", "").strip()
+    OPENROUTER_MODEL_INTELIGENTE: str = os.getenv("OPENROUTER_MODEL_INTELIGENTE", "").strip()
+    OPENROUTER_MODEL_PREMIUM: str = os.getenv("OPENROUTER_MODEL_PREMIUM", "").strip()
+
     # --- ScalaFlow (Supabase) ---
     # SERVICE_KEY, nao a "anon key": a tabela produtos_minerados tem RLS
     # (auth.uid() = user_id) e o CRIS OS nao loga como usuario nenhum.

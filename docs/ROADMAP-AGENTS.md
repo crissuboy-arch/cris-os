@@ -7,9 +7,13 @@ DESCOBRIR → VALIDAR → DECIDIR → CRIAR/AFILIAR/COMÉRCIO → PRODUZIR → P
 → ANUNCIAR → MEDIR → OTIMIZAR → ESCALAR
 ```
 
-Onde estamos hoje: **DESCOBRIR** (`scalaflow_intel`, Marco 1) e **VALIDAR +
-DECIDIR** (`opportunity_analyst` + Decision Engine, Fase 2). Todo o resto
-(`CRIAR` em diante) é só visão — nada abaixo desta fase foi implementado.
+Onde estamos hoje: **DESCOBRIR** (`scalaflow_intel`, Marco 1), **VALIDAR +
+DECIDIR** (`opportunity_analyst` + Decision Engine, Fase 2), e a partir da
+Fase 2.5 os agentes futuros abaixo já têm **onde buscar raciocínio real**
+quando precisarem (`llm/openrouter.py`, ver
+[CRIS-OS-ARCHITECTURE.md](CRIS-OS-ARCHITECTURE.md#roteamento-por-custo-fase-25)).
+Todo o resto (`CRIAR` em diante) é só visão — nada abaixo desta fase foi
+implementado.
 
 ## Agentes futuros (documentação de intenção — NÃO implementar ainda)
 
@@ -61,6 +65,24 @@ Passo a passo, seguindo o padrão já usado por `scalaflow_intel` e
 7. Atualizar `tests/test_agent_orchestrator.py::test_discover_agents_carrega_todos`
    (contagem e nomes dos agentes).
 8. Documentar em `docs/` seguindo o padrão desta fase.
+9. Se o agente **precisar** de raciocínio/análise real (não é determinístico),
+   use o provedor `OpenRouterProvider` (`llm/openrouter.py`) na camada de
+   custo adequada (ECONÔMICO para classificação/resumo/extração,
+   INTELIGENTE para raciocínio mais complexo, PREMIUM só com justificativa) —
+   nunca chame uma API de IA nova sem essa camada existente já cobrir o caso.
+
+### Otimização pendente (registrada, não implementada)
+
+O `AgentOrchestrator` usa **o mesmo** LLM para classificar o roteamento
+(`_rotear`) e para gerar a resposta do agente geral (`_gerar_com_llm`) — ao
+contrário do `Orchestrator` clássico, que já separa os dois papéis via
+`llm.for_role("routing")` / `llm.for_role("generation")`. Isso significa que,
+quando o OpenRouter está ativo, a classificação de roteamento (que deveria
+ser uma tarefa ECONÔMICA e barata) acaba usando o tier INTELIGENTE (mais
+caro) — confirmado num teste real na Fase 2.5, onde a chamada de
+classificação sozinha gastou 764 tokens de saída. Uma fase futura pode
+separar esses dois papéis no `AgentOrchestrator` (igual ao `Orchestrator`
+clássico) para plugar o tier ECONÔMICO especificamente na classificação.
 
 ## Multi-tenant (visão futura — NÃO construir agora)
 
@@ -81,6 +103,9 @@ inteira, não desta.
 - Tráfego pago / campanhas reais.
 - Conexão com Google Drive.
 - Conexão com contas de anúncio (Meta/TikTok/Google Ads).
-- Qualquer LLM novo ou API de IA paga.
+- Qualquer LLM/API de IA paga **além do OpenRouter** (adicionado na Fase 2.5;
+  ver [CRIS-OS-ARCHITECTURE.md](CRIS-OS-ARCHITECTURE.md#roteamento-por-custo-fase-25)).
 - Instalação/configuração do Ollama.
 - Mudanças visuais ou de schema no ScalaFlow/Supabase.
+- Uso automático do tier PREMIUM do OpenRouter em qualquer fluxo (implementado,
+  mas não plugado em lugar nenhum — só com justificativa/autorização futura).
