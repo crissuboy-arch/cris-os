@@ -1,9 +1,14 @@
-# CRIS OS — Arquitetura (Fase 2 + Fase 2.5)
+# CRIS OS — Arquitetura (Fase 2 + Fase 2.5 + Fase 3)
 
 > Visão de arquitetura da camada inteligente construída na Fase 2 (Project
-> Brain + Opportunity Analyst + Decision Engine) e do provedor de IA remota
-> adicionado na Fase 2.5 (OpenRouter), em cima do Marco 1
+> Brain + Opportunity Analyst + Decision Engine), do provedor de IA remota
+> da Fase 2.5 (OpenRouter), e do Product Architect + Product Factory
+> (fundação) da Fase 3, em cima do Marco 1
 > ([docs/MARCO-01-TELEGRAM-SCALAFLOW.md](MARCO-01-TELEGRAM-SCALAFLOW.md)).
+> Docs específicos da Fase 3: [PRODUCT-ARCHITECT.md](PRODUCT-ARCHITECT.md),
+> [PRODUCT-BLUEPRINT.md](PRODUCT-BLUEPRINT.md),
+> [PRODUCT-FACTORY.md](PRODUCT-FACTORY.md),
+> [TOOL-REGISTRY.md](TOOL-REGISTRY.md).
 
 ## Princípio central
 
@@ -37,6 +42,12 @@ automação, ou por outro canal, sem mudar uma linha de `agents/` ou `tools/`.
 | Persistência local | `storage/sqlite_memory.py` (`data/cris_os.db`) | já existia — reaproveitado |
 | Provedor de IA remota (OpenRouter) | `llm/openrouter.py` | Fase 2.5 |
 | Wiring do fallback (Ollama → OpenRouter) | `core/runtime.py:_configurar_openrouter` | Fase 2.5 |
+| Agente Product Architect (propõe formato de produto) | `agents/product_architect.py` + `tools/product_architect_tools.py` | Fase 3 |
+| Lógica do Product Architect (LLM + fallback) | `core/product_architect.py` | Fase 3 |
+| Product Factory (fundação — gate + 1º artefato) | `core/product_factory.py` | Fase 3 |
+| Tool Registry (capabilities de produção) | `core/tool_registry.py` | Fase 3 |
+| Foco por usuário/chat (persistente) | `memory/project_brain.py:UserFocusStore` | Fase 3 |
+| Divisão de mensagens >4000 chars no Telegram | `channels/telegram/bot.py:_dividir_mensagem` | Fase 3 |
 
 ## Fluxo completo (Fase 2)
 
@@ -65,6 +76,35 @@ A etapa 5 (LLM) é a única que pode custar dinheiro — e só é alcançada
 quando **nenhuma** interceptação determinística (passos 3 e 4) bateu. Ver
 "Roteamento por custo" abaixo para o que acontece dentro dela desde a
 Fase 2.5.
+
+## Fluxo completo (Fase 3 — Product Architect)
+
+```
+... (Opportunity Analyst + Decision Engine, como acima) ...
+  → agents/product_architect.py (SpecialistAgent)
+  → tools/product_architect_tools.py:gerenciar_produto(entrada, session)
+       a. resolve o projeto (foco persistido POR SESSAO -- UserFocusStore --
+          ou dispara investigacao nova; um link/ID novo na mensagem sempre
+          tem prioridade sobre um foco antigo)
+       b. core/product_architect.py:propor_produto() -- OpenRouter tier
+          INTELIGENTE gera 3-5 candidatos (hipoteses); so promove um a
+          `recommended_product_type` se o proprio LLM sinalizar confianca
+          real (`ready_for_approval`)
+       c. persiste no MESMO ProjectBrain (`blueprint`), atualiza o foco
+  → resposta (hipoteses OU recomendacao, nunca aprovada automaticamente)
+  → aprovacao humana explicita ("Aprovado"/"Aprovo o formato X")
+  → core/product_factory.py:criar_plano_inicial() -- SO com blueprint
+    APPROVED -- monta plano + gera 1 artefato textual real (COPY_GENERATOR)
+  → resposta -> Telegram (dividida automaticamente se > 4000 caracteres)
+```
+
+**Persistência do contexto** (correção pós-teste real): "qual oportunidade
+está em foco" não é mais uma variável Python — é persistido via
+`UserFocusStore` na mesma tabela do Project Brain, chaveado por `session`
+(`IncomingMessage.session`, ex. `"telegram:6460872429"`). Sobrevive a
+restart do processo **e** a reboot do computador (testado com ambos), e é
+isolado por sessão (nunca um único "foco atual" global compartilhado). Ver
+detalhes em [PRODUCT-ARCHITECT.md](PRODUCT-ARCHITECT.md#persistência-por-usuáriochat).
 
 ## Roteamento por custo (Fase 2.5)
 
@@ -193,6 +233,20 @@ Ver a seção "Limitações" em cada doc específico
   classificar). Não corrigido nesta fase — exigiria separar os dois papéis
   dentro do `AgentOrchestrator`, uma mudança de escopo maior. Fica
   registrado como otimização de custo para uma fase futura.
+
+Limitações específicas da Fase 3 (Product Architect/Factory) estão em
+[PRODUCT-ARCHITECT.md](PRODUCT-ARCHITECT.md#limitações-conhecidas) e
+[PRODUCT-FACTORY.md](PRODUCT-FACTORY.md#limitações-conhecidas). Resumo:
+
+- `user_id`/`tenant_id` do `ProductBlueprint` continuam vazios — o que foi
+  resolvido é o isolamento de *contexto de conversa* por sessão, não uma
+  autenticação multiusuário completa.
+- Paráfrases não previstas de "quais alternativas" podem disparar uma nova
+  chamada ao LLM em vez de reaproveitar candidatos já calculados.
+- 8 de 9 capabilities do Tool Registry seguem indisponíveis de propósito
+  (fundação, não construção) — `MINI_APP_BUILDER` em especial aguarda uma
+  interface/API do criador de mini-apps que a Cris já tem, ainda não
+  integrada.
 
 ## Como restaurar / adicionar novas Skills
 

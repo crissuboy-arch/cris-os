@@ -31,6 +31,41 @@ logger = logging.getLogger(__name__)
 
 NAME = "telegram"
 
+# Limite real do Telegram e 4096 chars por mensagem; usamos uma margem de
+# seguranca. Sem isso, uma resposta longa (ex.: Product Architect listando
+# varias hipoteses de produto, Fase 3) faz `reply_text` levantar
+# `telegram.error.BadRequest: Message is too long` e a resposta NUNCA chega
+# -- bug real encontrado no teste da Fase 3.
+_LIMITE_MENSAGEM_TELEGRAM = 4000
+
+
+def _dividir_mensagem(texto: str, limite: int = _LIMITE_MENSAGEM_TELEGRAM) -> list[str]:
+    """Quebra `texto` em pedacos <= `limite`, preferindo cortar em linhas
+    em branco (paragrafos) e, se necessario, em quebras de linha simples --
+    nunca no meio de uma palavra/emoji."""
+    if len(texto) <= limite:
+        return [texto]
+
+    partes: list[str] = []
+    atual = ""
+    for linha in texto.split("\n"):
+        candidato = f"{atual}\n{linha}" if atual else linha
+        if len(candidato) <= limite:
+            atual = candidato
+            continue
+        if atual:
+            partes.append(atual)
+        if len(linha) <= limite:
+            atual = linha
+        else:
+            # linha unica gigante (raro): corta em blocos fixos
+            for i in range(0, len(linha), limite):
+                partes.append(linha[i : i + limite])
+            atual = ""
+    if atual:
+        partes.append(atual)
+    return partes
+
 
 class TelegramChannel:
     """Canal Telegram. Recebe o `handler` (Gateway.handle) por injeção."""
@@ -65,7 +100,8 @@ class TelegramChannel:
         resposta = await asyncio.to_thread(self.handler, incoming)
 
         if resposta:
-            await update.message.reply_text(resposta)
+            for parte in _dividir_mensagem(resposta):
+                await update.message.reply_text(parte)
 
     async def _on_agent(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Comando /agent: mostra o agente ativo."""

@@ -55,6 +55,12 @@ class Origem:
     source_url: str | None = None
     source_country: str | None = None
     source_language: str | None = None
+    # Headline/copy CRUS do anuncio (Fase 3): sem isso o Product Architect so
+    # tinha nome do anunciante/score/sinais -- pouco pra propor um formato de
+    # produto com responsabilidade (na pratica, virava NEEDS_RESEARCH sempre).
+    # Continua sendo dado REAL do ScalaFlow, nao inventado.
+    source_headline: str | None = None
+    source_copy: str | None = None
 
 
 @dataclass
@@ -128,6 +134,91 @@ class Historico:
     agent_runs: list[dict] = field(default_factory=list)
 
 
+# Estados validos do Product Blueprint (Fase 3). A criacao SEMPRE termina em
+# PENDING_APPROVAL -- o Product Architect nunca aprova a propria proposta.
+BLUEPRINT_ESTADOS_VALIDOS = frozenset({
+    "DRAFT", "PENDING_APPROVAL", "APPROVED", "REJECTED",
+    "NEEDS_RESEARCH", "IN_PRODUCTION", "COMPLETED",
+})
+
+
+@dataclass
+class ProductBlueprint:
+    """
+    Proposta estruturada de produto (Fase 3 -- Product Architect).
+
+    Campos "user_id/tenant_id" e "opportunity_id" existem para o blueprint
+    ser autocontido (poder ser lido/exportado sem precisar do ProjectBrain
+    inteiro), mesmo hoje sendo sempre preenchidos a partir do
+    ProjectBrain que o contem (`identidade.project_id`,
+    `origem.source_offer_id`). NAO ha isolamento multi-tenant real ainda --
+    ver "Build for one today, architecture for many tomorrow" em
+    docs/PRODUCT-BLUEPRINT.md.
+    """
+
+    project_id: str = ""
+    user_id: str | None = None
+    tenant_id: str | None = None
+    opportunity_id: str | None = None  # referencia (source_offer_id da oportunidade)
+    created_at: str = field(default_factory=_agora)
+    updated_at: str = field(default_factory=_agora)
+
+    # --- mercado/contexto (herdado da oportunidade, sem reinventar) ---
+    market: str | None = None
+    country: str | None = None
+    language: str | None = None
+    niche: str | None = None
+    target_audience: str | None = None
+    problem: str | None = None
+    opportunity_summary: str | None = None
+
+    # --- formato de produto ---
+    recommended_product_type: str | None = None
+    alternative_product_types: list[str] = field(default_factory=list)
+
+    # --- conceito ---
+    product_concept: str | None = None
+    core_value: str | None = None
+    transformation: str | None = None
+    mechanism: str | None = None
+    differentiation: str | None = None
+
+    # --- producao ---
+    mvp_scope: str | None = None
+    production_complexity: str | None = None  # "baixa" | "media" | "alta"
+    estimated_speed_to_mvp: str | None = None  # texto livre (ex.: "1-2 dias")
+    required_tools: list[str] = field(default_factory=list)
+    required_integrations: list[str] = field(default_factory=list)
+
+    # --- monetizacao ---
+    monetization_options: list[str] = field(default_factory=list)
+    suggested_offer_structure: str | None = None
+
+    # --- honestidade (nunca inventar) ---
+    evidence: list[str] = field(default_factory=list)
+    assumptions: list[str] = field(default_factory=list)
+    risks: list[str] = field(default_factory=list)
+    missing_evidence: list[str] = field(default_factory=list)
+
+    # --- decisao/aprovacao ---
+    decision_status: str = "DRAFT"
+    reasoning_summary: str | None = None  # por que esse formato (para "por que X?")
+
+    # --- hipoteses de formato (correcao pos-teste real da Fase 3) ---
+    # EVIDENCIA INSUFICIENTE PARA DECIDIR/APROVAR != evidencia insuficiente
+    # para GERAR HIPOTESES. `candidates` guarda de 3 a 5 formatos plausiveis
+    # (cada um com publico/problema/motivo/dificuldade/monetizacao/
+    # evidencias a favor e ausentes/confianca), sempre que houver QUALQUER
+    # evidencia real pra raciocinar em cima -- mesmo quando nenhum deles e
+    # confiavel o bastante pra virar `recommended_product_type`. So fica
+    # vazio quando realmente nao ha nada (nem headline, nem copy, nem
+    # nicho, nem score).
+    candidates: list[dict] = field(default_factory=list)
+
+    # --- rastreabilidade da geracao (nao e segredo, e metadado de custo) ---
+    generated_by: str | None = None  # "openrouter:inteligente" | "fallback_deterministico" | ...
+
+
 @dataclass
 class ProjectBrain:
     identidade: Identidade
@@ -136,6 +227,7 @@ class ProjectBrain:
     oportunidade: Oportunidade = field(default_factory=Oportunidade)
     decisao: Decisao = field(default_factory=Decisao)
     produto: Produto = field(default_factory=Produto)
+    blueprint: ProductBlueprint | None = None
     brand: Brand = field(default_factory=Brand)
     assets: Assets = field(default_factory=Assets)
     trafego: Trafego = field(default_factory=Trafego)
@@ -150,6 +242,7 @@ class ProjectBrain:
 
     @classmethod
     def from_dict(cls, d: dict) -> "ProjectBrain":
+        blueprint_dict = d.get("blueprint")
         return cls(
             identidade=Identidade(**d["identidade"]),
             origem=Origem(**d.get("origem", {})),
@@ -157,6 +250,7 @@ class ProjectBrain:
             oportunidade=Oportunidade(**d.get("oportunidade", {})),
             decisao=Decisao(**d.get("decisao", {})),
             produto=Produto(**d.get("produto", {})),
+            blueprint=ProductBlueprint(**blueprint_dict) if blueprint_dict else None,
             brand=Brand(**d.get("brand", {})),
             assets=Assets(**d.get("assets", {})),
             trafego=Trafego(**d.get("trafego", {})),
@@ -175,12 +269,28 @@ class ProjectBrain:
         })
         self.identidade.updated_at = _agora()
 
+    def registrar_aprovacao(self, status: str, motivo: str = "") -> None:
+        """Registra uma aprovacao/rejeicao do blueprint no historico (Fase 3)."""
+        self.historico.approvals.append({
+            "status": status, "motivo": motivo, "timestamp": _agora(),
+        })
+        self.identidade.updated_at = _agora()
+
 
 class ProjectBrainStore:
     """Persiste/recupera ProjectBrain reaproveitando `ProjectMemory` (L2)."""
 
     def __init__(self, project_memory) -> None:
         self._pm = project_memory
+
+    @property
+    def project_memory(self):
+        """Expoe a `ProjectMemory` (L2) usada por este store, para que
+        `UserFocusStore` (Fase 3) reaproveite a MESMA conexao/backend em vez
+        de abrir uma segunda -- garante que os dois sempre apontam pro
+        mesmo `data/cris_os.db` (ou pro mesmo banco de teste, quando
+        monkeypatchado)."""
+        return self._pm
 
     @staticmethod
     def _item_id(project_id: str) -> str:
@@ -217,3 +327,67 @@ class ProjectBrainStore:
             if brain:
                 out.append(brain)
         return out
+
+
+# ---------------------------------------------------------------------------
+# Foco por usuario/canal (correcao pos-teste real da Fase 3)
+# ---------------------------------------------------------------------------
+#
+# Problema corrigido: "qual oportunidade esta em foco" vivia so numa
+# variavel Python em `tools/opportunity_tools.py` -- perdida a cada restart
+# do processo, e compartilhada por TODOS os usuarios (nunca isolada por
+# pessoa/canal). `UserFocusStore` persiste isso reaproveitando a MESMA
+# infraestrutura do Project Brain (`ProjectMemory`/`project_memory`,
+# `data/cris_os.db`) -- nao cria uma segunda fonte de verdade, so usa uma
+# outra "gaveta" (chave logica) dentro da mesma tabela: cada foco vira um
+# `KnowledgeItem` com `type="user_focus"`, guardado sob uma "project key"
+# pseudo `__focus__:<session>` (nunca colide com um `project_id` real, que
+# sempre comeca com "proj_").
+_FOCUS_TYPE = "user_focus"
+
+
+def _focus_pseudo_project(session: str) -> str:
+    return f"__focus__:{session}"
+
+
+class UserFocusStore:
+    """Persiste/recupera 'qual projeto esta em foco' POR sessao (canal+
+    usuario, ex.: "telegram:6460872429") -- preparado para multiusuario:
+    cada sessao tem seu proprio foco, nunca um global compartilhado."""
+
+    def __init__(self, project_memory) -> None:
+        self._pm = project_memory
+
+    @staticmethod
+    def _item_id(session: str) -> str:
+        return f"focus:{session}"
+
+    def set_focus(self, session: str, project_id: str, opportunity_id: str | None = None) -> None:
+        if not session:
+            return  # sem sessao (ex.: teste antigo sem contexto) -- nao persiste as cegas
+        payload = json.dumps({
+            "session": session,
+            "project_id": project_id,
+            "opportunity_id": opportunity_id,
+            "updated_at": _agora(),
+        }, ensure_ascii=False)
+        item = KnowledgeItem(
+            id=self._item_id(session),
+            type=_FOCUS_TYPE,
+            title=f"foco:{session}",
+            content=payload,
+            tags=[session],
+        )
+        self._pm.backend.remember_project(_focus_pseudo_project(session), item)
+
+    def get_focus(self, session: str) -> str | None:
+        if not session:
+            return None
+        for item in self._pm.recall(_focus_pseudo_project(session)):
+            if item.type == _FOCUS_TYPE:
+                try:
+                    dados = json.loads(item.content)
+                except json.JSONDecodeError:
+                    return None
+                return dados.get("project_id")
+        return None

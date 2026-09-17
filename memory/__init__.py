@@ -16,5 +16,5 @@ from .layers import (  # noqa: F401
     ProjectMemory,
     TemporaryMemory,
 )
-from .project_brain import ProjectBrain, ProjectBrainStore  # noqa: F401
+from .project_brain import ProjectBrain, ProjectBrainStore, UserFocusStore  # noqa: F401
 from .skill_memory import FacadeSkillMemory  # noqa: F401

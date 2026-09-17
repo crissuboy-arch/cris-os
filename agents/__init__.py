@@ -28,6 +28,7 @@ AGENT_MODULES = [
     "agents.produtividade",
     "agents.scalaflow_intel",
     "agents.opportunity_analyst",
+    "agents.product_architect",
 ]
 GENERAL_MODULE = "agents.geral"
 

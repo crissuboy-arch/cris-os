@@ -242,8 +242,9 @@ def test_continuacao_nao_sequestra_comando_scalaflow_mesmo_apos_opportunity():
 def test_resolver_por_foco_sem_investigacao_previa_pede_para_indicar(monkeypatch):
     import tools.opportunity_tools as ot
 
-    monkeypatch.setattr(ot, "_foco_atual_project_id", None)
-    resultado = ot._resolver_por_foco_atual()
+    # sessao nunca usada antes -> get_foco_atual devolve None (persistido,
+    # nao um global -- ver UserFocusStore, Fase 3) -- nunca inventa qual e.
+    resultado = ot._resolver_por_foco_atual("telegram:sessao-nunca-usada")
     assert isinstance(resultado, str)
     assert "Nao sei a qual oportunidade" in resultado
 
@@ -258,7 +259,7 @@ def test_resolver_oferta_com_referencia_contextual_usa_foco(monkeypatch):
 
     chamado = {}
 
-    def fake_foco():
+    def fake_foco(session):
         chamado["usado"] = True
         return {"id": "abc", "score": 90}
 

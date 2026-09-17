@@ -40,7 +40,7 @@ from core.decision_engine import (
     preparar_analise_afiliacao,
     preparar_analise_comercio,
 )
-from memory import ProjectBrainStore
+from memory import ProjectBrainStore, UserFocusStore
 from memory.layers import ProjectMemory
 from storage import SQLiteMemory
 from tools.base import Tool
@@ -95,24 +95,60 @@ _PATH_LABEL = {
 
 _project_brain_store: ProjectBrainStore | None = None
 
-# "Projeto em foco": qual oportunidade a ultima investigacao tratou. Usado
-# para resolver follow-ups como "isso aparece no TikTok?"/"qual caminho faz
-# sentido pra essa oportunidade?" sem exigir que o usuario repita o link do
-# anuncio a cada mensagem.
+# "Oportunidade em foco": qual projeto a ultima investigacao/proposta desta
+# CONVERSA tratou. Usado para resolver follow-ups como "isso aparece no
+# TikTok?"/"qual caminho faz sentido pra essa oportunidade?" sem exigir que
+# o usuario repita o link do anuncio a cada mensagem.
 #
-# LIMITACAO CONHECIDA (documentada, nao escondida): isso e GLOBAL por
-# processo, nao por usuario -- aceitavel enquanto o CRIS OS atende UMA UNICA
-# pessoa (TELEGRAM_ALLOWED_USER_ID). Quando existir mais de um usuario
-# (multi-tenant, fase futura), isso precisa virar um dict {user_id: project_id}
-# de verdade, threadado a partir do Gateway/Orchestrator ate aqui -- o
-# `Tool.fn` atual (`tools/base.py`) so recebe o texto da mensagem, sem
-# user_id, entao essa mudanca exige tocar a assinatura compartilhada de Tool.
-_foco_atual_project_id: str | None = None
-
+# CORRECAO (pos-teste real, Fase 3): isso costumava ser uma variavel Python
+# global -- perdida a cada restart do processo e compartilhada por TODOS os
+# usuarios/canais. Agora e persistido via `UserFocusStore` (mesma
+# infraestrutura do Project Brain, `data/cris_os.db`), chaveado por
+# `session` (`IncomingMessage.session`, ex.: "telegram:6460872429") --
+# sobrevive a restart e nunca mistura o foco de duas sessoes diferentes.
 _REFERENCIA_CONTEXTUAL = frozenset({
     "esta", "essa", "este", "esse", "isso", "aquela", "aquele", "aquilo",
     "dessa", "desse", "nessa", "nesse",
 })
+
+
+def _get_user_focus_store() -> UserFocusStore:
+    """Reaproveita a MESMA `ProjectMemory` do ProjectBrainStore (nao abre
+    uma segunda conexao/fonte de verdade). Construido a cada chamada (nao
+    cacheado como singleton): e so um wrapper leve sobre a conexao ja
+    existente, e nao cachear evita servir um backend antigo caso
+    `get_project_brain_store` mude (ex.: testes trocando de banco)."""
+    return UserFocusStore(_get_project_brain_store().project_memory)
+
+
+def get_foco_atual(session: str = "") -> str | None:
+    """Project_id da oportunidade em foco NESTA sessao (canal+usuario), ou
+    None se nao houver nenhuma ainda (nunca inventa). Persistido -- sobrevive
+    a restart do processo. Exposto para outros módulos (ex.:
+    tools/product_architect_tools.py, Fase 3) reaproveitarem o MESMO
+    mecanismo em vez de criar um estado paralelo."""
+    if not session:
+        return None
+    return _get_user_focus_store().get_focus(session)
+
+
+def set_foco_atual(session: str, project_id: str) -> None:
+    """Persiste a oportunidade em foco desta sessao. Usado pelo Product
+    Architect (Fase 3) quando ele mesmo dispara uma investigação nova antes
+    de propor um produto."""
+    if not session:
+        logger.warning(
+            "=== [OPPORTUNITY_ANALYST] set_foco_atual chamado sem `session` -- "
+            "foco NAO sera persistido (evita misturar contexto entre sessoes) ==="
+        )
+        return
+    _get_user_focus_store().set_focus(session, project_id)
+
+
+def get_project_brain_store() -> ProjectBrainStore:
+    """Alias público de `_get_project_brain_store` para outros módulos
+    (Fase 3) reaproveitarem a mesma store/conexão em vez de abrir outra."""
+    return _get_project_brain_store()
 
 
 def _get_project_brain_store() -> ProjectBrainStore:
@@ -141,6 +177,22 @@ def _extrair_ad_library_id(texto: str) -> str | None:
     return None
 
 
+def detectar_ad_library_id(texto: str) -> str | None:
+    """
+    Alias público de `_extrair_ad_library_id` (Fase 3). Reconhece
+    DETERMINISTICAMENTE (sem LLM) um link da Meta Ads Library ou um ID cru
+    em qualquer mensagem -- usado em dois lugares:
+      1. `agents/orchestrator.py` -- para rotear a mensagem pro
+         opportunity_analyst mesmo quando ela nao tem nenhuma palavra-chave
+         (ex.: a pessoa so cola o link).
+      2. `Tool.matcher` do proprio `investigar_oportunidade_scalaflow` -- pra
+         `SpecialistAgent._encontrar_ferramenta` tambem reconhecer a mesma
+         mensagem (evita cair no LLM generico por a Tool nao "achar" a
+         mensagem, mesmo com o agente certo ja escolhido).
+    """
+    return _extrair_ad_library_id(texto or "")
+
+
 def _buscar_por_ad_library_id(ad_library_id: str) -> dict | str:
     url = settings.SUPABASE_URL.rstrip("/")
     try:
@@ -159,9 +211,11 @@ def _buscar_por_ad_library_id(ad_library_id: str) -> dict | str:
     return f"Nao encontrei nenhum anuncio com ad_library_id={ad_library_id} no ScalaFlow."
 
 
-def _resolver_por_foco_atual() -> dict | str:
-    """Reusa a oferta da ultima investigacao (ver `_foco_atual_project_id`)."""
-    if not _foco_atual_project_id:
+def _resolver_por_foco_atual(session: str) -> dict | str:
+    """Reusa a oferta da ultima investigacao DESTA sessao (persistido -- ver
+    `UserFocusStore`, sobrevive a restart)."""
+    foco = get_foco_atual(session)
+    if not foco:
         return (
             "Nao sei a qual oportunidade voce se refere -- ainda nao investiguei "
             "nenhuma nesta sessao. Indique um link do anuncio (Meta Ads Library) "
@@ -169,7 +223,7 @@ def _resolver_por_foco_atual() -> dict | str:
             "salvas' / 'minha oferta escalada' para eu comecar."
         )
     store = _get_project_brain_store()
-    brain = store.load(_foco_atual_project_id)
+    brain = store.load(foco)
     if not brain or not brain.origem.source_offer_id:
         return (
             "Nao consegui recuperar a oportunidade que estavamos discutindo. "
@@ -178,7 +232,7 @@ def _resolver_por_foco_atual() -> dict | str:
     return _buscar_por_ad_library_id(brain.origem.source_offer_id)
 
 
-def _resolver_oferta(texto: str) -> dict | str:
+def _resolver_oferta(texto: str, session: str = "") -> dict | str:
     """
     Resolve qual anuncio investigar a partir do texto do usuario. Reaproveita
     `_buscar_anuncios` (tools/scalaflow_tools.py) -- nao duplica logica de
@@ -202,26 +256,82 @@ def _resolver_oferta(texto: str) -> dict | str:
     # `_resolver_por_foco_atual`).
     palavras = set(texto_lower.split())
     if palavras & _REFERENCIA_CONTEXTUAL:
-        return _resolver_por_foco_atual()
+        return _resolver_por_foco_atual(session)
 
     if "favorit" in texto_lower:
         resultado = _buscar_anuncios(limite=1, somente_favoritos=True)
         vazio_msg = "Voce ainda nao tem favoritos no ScalaFlow."
-    elif "salv" in texto_lower:
+        if isinstance(resultado, str):
+            return resultado
+        if not resultado:
+            return vazio_msg
+        return resultado[0]
+    if "salv" in texto_lower:
         resultado = _buscar_anuncios(limite=1, somente_salvos=True)
         vazio_msg = "Voce ainda nao tem ofertas salvas no ScalaFlow."
-    elif "escalad" in texto_lower:
+        if isinstance(resultado, str):
+            return resultado
+        if not resultado:
+            return vazio_msg
+        return resultado[0]
+    if "escalad" in texto_lower:
         resultado = _buscar_anuncios(limite=1, somente_escalados=True)
         vazio_msg = "Nao ha ofertas escaladas (score >= 80) no ScalaFlow no momento."
-    else:
-        resultado = _buscar_anuncios(limite=1)
-        vazio_msg = "Nao encontrei nenhum anuncio no ScalaFlow para investigar."
+        if isinstance(resultado, str):
+            return resultado
+        if not resultado:
+            return vazio_msg
+        return resultado[0]
 
-    if isinstance(resultado, str):
-        return resultado
-    if not resultado:
-        return vazio_msg
-    return resultado[0]
+    # Sem filtro explicito ("minha melhor oportunidade"): NAO e so o maior
+    # score -- ver `_selecionar_melhor_oportunidade`.
+    return _selecionar_melhor_oportunidade()
+
+
+def _pontuar_viabilidade(oferta: dict) -> float:
+    """
+    Pontuacao DETERMINISTICA (sem LLM, sem inventar nada) de "quao viavel e
+    isso pra virar produto" -- so combina campos que JA EXISTEM no registro
+    real do ScalaFlow. NAO e uma medida de sucesso de mercado, so de
+    COMPLETUDE do que temos pra trabalhar (score sozinho nao mede isso: um
+    anuncio score 99 sem headline/copy/keyword e menos util pro Product
+    Architect do que um score 90 com dado completo).
+    """
+    score = oferta.get("score") or 0
+    headline = (oferta.get("headline") or "").strip()
+    advertiser = (oferta.get("advertiser") or "").strip()
+    copy = (oferta.get("copy") or "").strip()
+    keyword = (oferta.get("keyword") or "").strip()
+    niche = (oferta.get("niche") or "").strip().lower()
+
+    pontos = min(float(score), 100.0) * 0.5  # score ainda pesa, mas nao decide sozinho
+    if headline and headline.lower() != advertiser.lower():
+        pontos += 15  # headline real, nao so o nome do anunciante repetido
+    if len(copy) >= 60:
+        pontos += 20
+    elif copy:
+        pontos += 8
+    if keyword:
+        pontos += 10  # keyword e o que permite cruzar sinais no Opportunity Analyst
+    if niche and niche != "geral":
+        pontos += 5
+    return pontos
+
+
+def _selecionar_melhor_oportunidade(pais: str | None = None) -> dict | str:
+    """
+    Escolhe "a melhor oportunidade" considerando score + completude dos
+    dados (headline/copy/keyword/nicho) -- nao so o maior score bruto.
+    Avalia um shortlist (top 10 por score, uma unica consulta) e pontua
+    cada um deterministicamente; nunca inventa metrica que o registro nao
+    tem.
+    """
+    candidatos = _buscar_anuncios(limite=10, pais=pais)
+    if isinstance(candidatos, str):
+        return candidatos
+    if not candidatos:
+        return "Nao encontrei nenhum anuncio no ScalaFlow para investigar."
+    return max(candidatos, key=_pontuar_viabilidade)
 
 
 def _extrair_termos_busca(oferta: dict) -> list[str]:
@@ -302,11 +412,17 @@ def _contar_concorrencia_scalaflow(keyword: str | None, excluir_id: str) -> str:
     return f"{len(linhas)} outro(s) anuncio(s) no ScalaFlow usando o termo '{keyword}' (contagem interna, nao e concorrencia de mercado real)."
 
 
-def investigar_oportunidade(entrada: str) -> str:
-    """Investiga uma oferta do ScalaFlow e devolve um resumo pronto pro Telegram."""
-    global _foco_atual_project_id
+def investigar_oportunidade(entrada: str, session: str = "") -> str:
+    """Investiga uma oferta do ScalaFlow e devolve um resumo pronto pro Telegram.
 
-    oferta = _resolver_oferta(entrada)
+    `session` (Fase 3): identifica canal+usuario (`IncomingMessage.session`).
+    Usado pra persistir/recuperar QUAL oportunidade fica em foco PARA ESSA
+    sessao especificamente (ver `UserFocusStore`) -- sem isso, "essa
+    oportunidade" numa mensagem seguinte nao teria como saber a qual anuncio
+    se refere, e restart do processo perderia o contexto (bug real corrigido
+    na Fase 3).
+    """
+    oferta = _resolver_oferta(entrada, session)
     if isinstance(oferta, str):
         return oferta
 
@@ -333,6 +449,8 @@ def investigar_oportunidade(entrada: str) -> str:
     brain.origem.source_platform = oferta.get("platform")
     brain.origem.source_url = oferta.get("ad_url")
     brain.origem.source_country = oferta.get("country")
+    brain.origem.source_headline = oferta.get("headline")
+    brain.origem.source_copy = oferta.get("copy")
     brain.mercado.niche = oferta.get("niche")
     brain.mercado.target_country = oferta.get("country")
     brain.oportunidade.score = oferta.get("score")
@@ -350,7 +468,7 @@ def investigar_oportunidade(entrada: str) -> str:
     brain.registrar_run("opportunity_analyst", f"Investigou oferta {brain.origem.source_offer_id}")
     brain.registrar_decisao(decisao.path, decisao.motivo)
     store.save(brain)
-    _foco_atual_project_id = brain.project_id
+    set_foco_atual(session, brain.project_id)
 
     label, emoji = _PATH_LABEL.get(decisao.path, (decisao.path, ""))
     if decisao.dados_faltantes:
@@ -415,5 +533,12 @@ def get_tools() -> list[Tool]:
                 "nesse",
             ],
             investigar_oportunidade,
+            # Reconhece um link/ID da Meta Ads Library em QUALQUER mensagem,
+            # mesmo sem nenhuma das palavras acima (ex.: a pessoa so cola o
+            # link). Sem isso, mesmo com o orchestrator roteando certo pro
+            # opportunity_analyst, a Tool nao "achava" a mensagem e caia no
+            # LLM generico -- que responde "nao consigo abrir links
+            # externos" (bug real encontrado no teste da Fase 3).
+            matcher=lambda t: detectar_ad_library_id(t) is not None,
         ),
     ]

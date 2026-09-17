@@ -70,6 +70,30 @@ _CONTINUACAO_OPORTUNIDADE_KEYWORDS = frozenset({
     "nesse",
 })
 
+# Product Architect (Fase 3) e checado ANTES do opportunity_analyst: frases
+# como "pegue uma das minhas melhores oportunidades e me diga que produto
+# deveriamos criar" contem palavra de ambos ("oportunidades" + "produto"), e
+# a intencao de PROPOR UM PRODUTO deve vencer a de so investigar/listar.
+_PRODUCT_ARCHITECT_KEYWORDS = frozenset({
+    "produto", "produtos", "blueprint", "formato",
+    "arquitet", "alternativas", "alternativa", "opcoes", "opções",
+    "aprovacao", "aprovação", "aguardando", "pendentes", "pendente",
+})
+
+# Continuacao de uma proposta ja feita (aprovar/rejeitar/explicar). So entra
+# em jogo quando o ULTIMO agente da conversa ja foi o product_architect --
+# nunca interpreta uma mensagem ambigua de outro contexto como aprovacao.
+_PRODUCT_ARCHITECT_CONTINUACAO_KEYWORDS = frozenset({
+    "aprovado", "aprovada", "aprovo", "autorizado", "autorizo",
+    "confirmado", "confirmo", "rejeitado", "rejeitada", "rejeito",
+    "porque", "motivo", "justificativa",
+})
+_PRODUCT_ARCHITECT_CONTINUACAO_FRASES = (
+    "pode criar", "pode seguir", "pode produzir", "pode comecar",
+    "pode começar", "bora criar", "nao gostei", "não gostei",
+    "quero outra", "outra alternativa", "por que",
+)
+
 
 def _model_name(llm: object) -> str:
     """Extrai o nome do modelo do provedor LLM."""
@@ -133,14 +157,18 @@ class AgentOrchestrator:
                 logger.info(
                     "=== [ORCHESTRATOR] Usando agente geral como fallback ===",
                 )
-                return self.general_agent.generate(texto)
+                return self.general_agent.generate(texto, incoming.session)
             return (
                 "Nao encontrei um agente adequado para essa tarefa. "
                 "Use /agents para ver os agentes disponiveis ou /use <nome> para escolher um."
             )
 
         self.last_agents[user_id] = agent.name
-        resposta = agent.generate(texto)
+        # `incoming.session` (canal+usuario, ex.: "telegram:123") permite a
+        # Tools que precisam de contexto POR sessao (ex.: oportunidade em
+        # foco do Opportunity Analyst/Product Architect, Fase 3) persistirem
+        # isso isolado por usuario/canal, em vez de um global compartilhado.
+        resposta = agent.generate(texto, incoming.session)
         elapsed_total = (time.perf_counter() - t0) * 1000
 
         logger.info(
@@ -227,6 +255,17 @@ class AgentOrchestrator:
                 )
                 return self.agents[ultimo]
 
+        # 2.5) Interceptacao deterministica do Product Architect (Fase 3),
+        #      checada ANTES do opportunity_analyst -- "pegue uma das minhas
+        #      melhores oportunidades e me diga que produto criar" nao pode
+        #      virar uma investigacao pura (a intencao e propor um produto).
+        if "product_architect" in self.agents and self._eh_comando_product_architect(texto):
+            logger.info(
+                "=== [ORCHESTRATOR] Interceptacao deterministica: 'product_architect' "
+                "(sem passar pelo LLM/Ollama) ===",
+            )
+            return self.agents["product_architect"]
+
         # 3) Interceptacao deterministica do Opportunity Analyst (checada ANTES
         #    do scalaflow_intel -- "investigue essa oferta" nao pode virar uma
         #    listagem de ofertas)
@@ -260,12 +299,49 @@ class AgentOrchestrator:
             )
             return self.agents["opportunity_analyst"]
 
+        # 4.6) Continuacao de uma proposta de produto ja feita (aprovar/
+        #      rejeitar/explicar). So entra em jogo se o ULTIMO agente ja foi
+        #      o product_architect -- nunca interpreta mensagem ambigua de
+        #      outro contexto como aprovacao.
+        if (
+            "product_architect" in self.agents
+            and self.last_agents.get(user_id) == "product_architect"
+            and self._eh_continuacao_product_architect(texto)
+        ):
+            logger.info(
+                "=== [ORCHESTRATOR] Continuacao de proposta (product_architect) "
+                "(sem passar pelo LLM/Ollama) ===",
+            )
+            return self.agents["product_architect"]
+
         # 5) Roteamento via LLM + keyword fallback
         nome_agente = self._rotear(texto)
         if nome_agente and nome_agente in self.agents:
             return self.agents[nome_agente]
 
         return None
+
+    @staticmethod
+    def _eh_comando_product_architect(texto: str) -> bool:
+        """Detecta comandos do Product Architect por palavra-chave (sem LLM)."""
+        palavras = set(texto.lower().split())
+        if palavras & _PRODUCT_ARCHITECT_KEYWORDS:
+            return True
+        texto_lower = texto.lower()
+        return any(kw in texto_lower for kw in _PRODUCT_ARCHITECT_KEYWORDS)
+
+    @staticmethod
+    def _eh_continuacao_product_architect(texto: str) -> bool:
+        """Detecta aprovacao/rejeicao/explicacao de uma proposta ja feita
+        (sem LLM). So chamado quando o ultimo agente ja era o
+        product_architect -- ver `_escolher_agente`."""
+        texto_lower = texto.lower()
+        palavras = set(texto_lower.split())
+        if palavras & _PRODUCT_ARCHITECT_CONTINUACAO_KEYWORDS:
+            return True
+        if any(kw in texto_lower for kw in _PRODUCT_ARCHITECT_CONTINUACAO_KEYWORDS):
+            return True
+        return any(f in texto_lower for f in _PRODUCT_ARCHITECT_CONTINUACAO_FRASES)
 
     @staticmethod
     def _eh_comando_scalaflow(texto: str) -> bool:
@@ -278,12 +354,19 @@ class AgentOrchestrator:
 
     @staticmethod
     def _eh_comando_opportunity(texto: str) -> bool:
-        """Detecta comandos do Opportunity Analyst por palavra-chave (sem LLM)."""
+        """Detecta comandos do Opportunity Analyst por palavra-chave (sem LLM)
+        OU por um link/ID real da Meta Ads Library em qualquer mensagem
+        (Fase 3 -- ex.: a pessoa so cola o link, sem nenhuma palavra-chave).
+        Um link reconhecido NUNCA deve cair no LLM generico."""
         palavras = set(texto.lower().split())
         if palavras & _OPPORTUNITY_KEYWORDS:
             return True
         texto_lower = texto.lower()
-        return any(kw in texto_lower for kw in _OPPORTUNITY_KEYWORDS)
+        if any(kw in texto_lower for kw in _OPPORTUNITY_KEYWORDS):
+            return True
+        from tools.opportunity_tools import detectar_ad_library_id
+
+        return detectar_ad_library_id(texto) is not None
 
     @staticmethod
     def _eh_continuacao_opportunity(texto: str) -> bool:
@@ -347,6 +430,7 @@ class AgentOrchestrator:
             (["codigo", "programa", "script", "automacao", "api", "funcao",
               "bug", "erro", "terminal", "bash", "powershell", "backend",
               "frontend", "github", "git"], "programador"),
+            (list(_PRODUCT_ARCHITECT_KEYWORDS), "product_architect"),
             (["proposta", "orcamento", "pitch", "negociacao",
               "prospeccao", "comercial", "argumentario"], "vendas"),
             (["atendimento", "suporte", "reclamacao", "cancelamento",
@@ -417,6 +501,9 @@ class AgentOrchestrator:
             "investigar": "opportunity_analyst",
             "oportunidade": "opportunity_analyst",
             "analyst": "opportunity_analyst",
+            "produto": "product_architect",
+            "architect": "product_architect",
+            "arquiteto": "product_architect",
         }
         n = nome.strip().lower().replace("-", "_")
         return aliases.get(n, n)

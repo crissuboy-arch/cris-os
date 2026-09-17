@@ -15,8 +15,23 @@ from core.runtime import StartupError, build
 
 
 def configurar_logs() -> None:
-    """Configura logs no console e em arquivo (sem emojis, por causa do Windows)."""
+    """Configura logs no console e em arquivo.
+
+    Respostas de agentes (Fase 2+) podem conter emojis (ex.: "🔎", "🧩",
+    "✅") -- o console do Windows, quando a saida e redirecionada (ex.:
+    `python main.py > arquivo.log`), usa a codepage local (cp1252) em vez de
+    UTF-8, e cp1252 nao representa a maioria dos emojis. Sem o
+    `errors="replace"` abaixo, isso derrubava so a linha de log (nunca a
+    resposta real do Telegram, que sempre usa UTF-8 via API) com um
+    "Logging error" no stderr. `reconfigure` falha silenciosamente se o
+    stream nao suportar (ex.: alguns runners de teste) -- sem problema, so
+    nao aplica a tolerancia extra nesses casos.
+    """
     settings.LOGS_DIR.mkdir(parents=True, exist_ok=True)
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
     logging.basicConfig(
         level=getattr(logging, settings.LOG_LEVEL, logging.INFO),
         format="%(asctime)s | %(levelname)-7s | %(name)s | %(message)s",

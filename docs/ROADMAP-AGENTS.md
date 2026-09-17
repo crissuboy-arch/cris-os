@@ -9,29 +9,32 @@ DESCOBRIR → VALIDAR → DECIDIR → CRIAR/AFILIAR/COMÉRCIO → PRODUZIR → P
 
 Onde estamos hoje: **DESCOBRIR** (`scalaflow_intel`, Marco 1), **VALIDAR +
 DECIDIR** (`opportunity_analyst` + Decision Engine, Fase 2), e a partir da
-Fase 2.5 os agentes futuros abaixo já têm **onde buscar raciocínio real**
-quando precisarem (`llm/openrouter.py`, ver
+Fase 3 o começo de **CRIAR** — `Product Architect` (propõe hipóteses de
+formato + recomendação, com aprovação humana obrigatória) e `Product
+Factory` (fundação: gate de aprovação + plano de produção + 1 artefato
+textual real). Desde a Fase 2.5 esses agentes já têm **onde buscar
+raciocínio real** quando precisam (`llm/openrouter.py`, ver
 [CRIS-OS-ARCHITECTURE.md](CRIS-OS-ARCHITECTURE.md#roteamento-por-custo-fase-25)).
-Todo o resto (`CRIAR` em diante) é só visão — nada abaixo desta fase foi
-implementado.
+Todo o resto (`PRODUZIR` em diante, e a produção *completa* de `CRIAR`) é
+só visão — nada além da fundação da Fase 3 foi implementado.
 
 ## Agentes futuros (documentação de intenção — NÃO implementar ainda)
 
-| Agente | Papel no pipeline |
-|---|---|
-| Product Architect | Desenha o produto próprio (quando `CREATE_OWN_PRODUCT`) |
-| Product Factory | Produz o produto em si (ebook, curso, SaaS, etc.) |
-| Brand Architect | Nome, slogan, cores, direção visual (`ProjectBrain.brand`) |
-| Offer Architect | Estrutura da oferta/preço (`ProjectBrain.produto`) |
-| Sales Page Architect | Landing page (`ProjectBrain.assets.landing_page`) |
-| Creative Director | Direção de criativos (`ProjectBrain.assets.creatives`) |
-| Video Agent | Produção de vídeo (`ProjectBrain.assets.videos`) |
-| Business Builder | Monta o negócio ao redor do produto |
-| Launch Architect | Plano de lançamento |
-| Paid Traffic Architect | Estrutura de campanhas (`ProjectBrain.trafego`) |
-| Performance Agent | Lê resultados de campanha (`ProjectBrain.trafego.results`) |
-| Growth Intelligence | Otimização/escala |
-| Máquina de Leads | Geração de leads |
+| Agente | Papel no pipeline | Status |
+|---|---|---|
+| Product Architect | Propõe formato de produto (hipóteses + recomendação) | ✅ Implementado (Fase 3) |
+| Product Factory | Produz o produto em si (ebook, curso, SaaS, etc.) | 🟡 Fundação implementada (Fase 3) — produção completa é futura |
+| Brand Architect | Nome, slogan, cores, direção visual (`ProjectBrain.brand`) | Visão |
+| Offer Architect | Estrutura da oferta/preço (`ProjectBrain.produto`) | Visão |
+| Sales Page Architect | Landing page (`ProjectBrain.assets.landing_page`) | Visão |
+| Creative Director | Direção de criativos (`ProjectBrain.assets.creatives`) | Visão |
+| Video Agent | Produção de vídeo (`ProjectBrain.assets.videos`) | Visão |
+| Business Builder | Monta o negócio ao redor do produto | Visão |
+| Launch Architect | Plano de lançamento | Visão |
+| Paid Traffic Architect | Estrutura de campanhas (`ProjectBrain.trafego`) | Visão |
+| Performance Agent | Lê resultados de campanha (`ProjectBrain.trafego.results`) | Visão |
+| Growth Intelligence | Otimização/escala | Visão |
+| Máquina de Leads | Geração de leads | Visão |
 
 Cada um desses, quando vier, deve seguir o mesmo padrão de
 `scalaflow_intel`/`opportunity_analyst`: um `SpecialistAgent` +
@@ -97,9 +100,19 @@ por cliente (banco separado ou `tenant_id` em toda consulta,
 `TELEGRAM_ALLOWED_USER_ID` por cliente, etc.) é trabalho de uma fase futura
 inteira, não desta.
 
+**Passo concreto dado na Fase 3**: o contexto de conversa (qual oportunidade
+está em foco) já é isolado por `session` (canal+usuário), persistido via
+`UserFocusStore` — não existe mais um único "projeto atual" global
+compartilhado. Isso é o alicerce, não a solução completa: `user_id`/
+`tenant_id` do `ProductBlueprint` continuam vazios, e não há isolamento de
+credenciais/custos por cliente. Ver
+[PRODUCT-ARCHITECT.md](PRODUCT-ARCHITECT.md#persistência-por-usuáriochat).
+
 ## O que está explicitamente FORA desta fase
 
-- Product Factory / criação de produto de fato.
+- Product Factory / criação de produto **de fato** (a fundação — gate,
+  plano, 1 artefato textual — já existe; gerar os ativos completos
+  continua fora de escopo).
 - Tráfego pago / campanhas reais.
 - Conexão com Google Drive.
 - Conexão com contas de anúncio (Meta/TikTok/Google Ads).

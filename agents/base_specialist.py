@@ -64,12 +64,17 @@ class SpecialistAgent:
         self.memory = memory
         self.usuario_id = usuario_id
 
-    def generate(self, message: str) -> str:
+    def generate(self, message: str, session: str = "") -> str:
         """
         Gera uma resposta para a mensagem do usuario.
 
         Tenta ferramentas primeiro; se nenhuma corresponde, usa LLM.
         Se MemoryManager configurado, salva a conversa automaticamente.
+
+        `session` (Fase 3): identifica canal+usuario (`IncomingMessage.session`,
+        ex.: "telegram:6460872429") -- repassado para a Tool poder persistir
+        contexto POR usuario/canal (ex.: "oportunidade em foco"), em vez de um
+        estado global compartilhado por todo o processo.
         """
         logger.info(
             "=== [SPECIALIST '%s'] Processando: '%s' ===",
@@ -84,7 +89,7 @@ class SpecialistAgent:
         ferramenta = self._encontrar_ferramenta(message)
         if ferramenta:
             t0 = time.perf_counter()
-            resultado = ferramenta.execute(message)
+            resultado = ferramenta.execute(message, session)
             elapsed = (time.perf_counter() - t0) * 1000
             logger.info(
                 "=== [SPECIALIST '%s'] Ferramenta usada: '%s' "
