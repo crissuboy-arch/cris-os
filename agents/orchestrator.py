@@ -54,6 +54,22 @@ _OPPORTUNITY_KEYWORDS = frozenset({
     "caminho", "decisao", "decision",
 })
 
+# Continuacao de uma investigacao ja em andamento (ex.: "Cris, isso aparece
+# no TikTok?" depois de "investigue minha melhor oferta"). NAO depende da
+# frase comecar com uma palavra especifica -- so entra em jogo quando o
+# ULTIMO agente da conversa ja foi o opportunity_analyst (ver
+# `_eh_continuacao_opportunity`), entao nao risca roteamento de mensagens
+# novas/nao relacionadas (ex.: "crie uma legenda pro meu tiktok" continua
+# indo pro social_media normalmente, porque o ultimo agente nao era o
+# opportunity_analyst).
+_CONTINUACAO_OPORTUNIDADE_KEYWORDS = frozenset({
+    "tiktok", "meta", "facebook", "instagram", "youtube", "google",
+    "trends", "tendencia", "tendencias", "aparece", "evidencia",
+    "evidencias", "fonte", "fontes", "esta", "essa", "este", "esse",
+    "isso", "aquela", "aquele", "aquilo", "dessa", "desse", "nessa",
+    "nesse",
+})
+
 
 def _model_name(llm: object) -> str:
     """Extrai o nome do modelo do provedor LLM."""
@@ -229,6 +245,21 @@ class AgentOrchestrator:
             )
             return self.agents["scalaflow_intel"]
 
+        # 4.5) Continuacao de uma investigacao ja em andamento: so entra em
+        #      jogo se o ULTIMO agente desta conversa ja foi o
+        #      opportunity_analyst (nao risca roteamento de mensagens novas).
+        #      Nao depende de a frase comecar com uma palavra especifica.
+        if (
+            "opportunity_analyst" in self.agents
+            and self.last_agents.get(user_id) == "opportunity_analyst"
+            and self._eh_continuacao_opportunity(texto)
+        ):
+            logger.info(
+                "=== [ORCHESTRATOR] Continuacao de investigacao (opportunity_analyst) "
+                "(sem passar pelo LLM/Ollama) ===",
+            )
+            return self.agents["opportunity_analyst"]
+
         # 5) Roteamento via LLM + keyword fallback
         nome_agente = self._rotear(texto)
         if nome_agente and nome_agente in self.agents:
@@ -253,6 +284,17 @@ class AgentOrchestrator:
             return True
         texto_lower = texto.lower()
         return any(kw in texto_lower for kw in _OPPORTUNITY_KEYWORDS)
+
+    @staticmethod
+    def _eh_continuacao_opportunity(texto: str) -> bool:
+        """Detecta continuacao de uma investigacao (sem LLM, sem exigir
+        palavra inicial fixa). So e chamado quando o ultimo agente ja era o
+        opportunity_analyst -- ver `_escolher_agente`."""
+        palavras = set(texto.lower().split())
+        if palavras & _CONTINUACAO_OPORTUNIDADE_KEYWORDS:
+            return True
+        texto_lower = texto.lower()
+        return any(kw in texto_lower for kw in _CONTINUACAO_OPORTUNIDADE_KEYWORDS)
 
     @staticmethod
     def _eh_followup(texto: str) -> bool:

@@ -95,6 +95,25 @@ _PATH_LABEL = {
 
 _project_brain_store: ProjectBrainStore | None = None
 
+# "Projeto em foco": qual oportunidade a ultima investigacao tratou. Usado
+# para resolver follow-ups como "isso aparece no TikTok?"/"qual caminho faz
+# sentido pra essa oportunidade?" sem exigir que o usuario repita o link do
+# anuncio a cada mensagem.
+#
+# LIMITACAO CONHECIDA (documentada, nao escondida): isso e GLOBAL por
+# processo, nao por usuario -- aceitavel enquanto o CRIS OS atende UMA UNICA
+# pessoa (TELEGRAM_ALLOWED_USER_ID). Quando existir mais de um usuario
+# (multi-tenant, fase futura), isso precisa virar um dict {user_id: project_id}
+# de verdade, threadado a partir do Gateway/Orchestrator ate aqui -- o
+# `Tool.fn` atual (`tools/base.py`) so recebe o texto da mensagem, sem
+# user_id, entao essa mudanca exige tocar a assinatura compartilhada de Tool.
+_foco_atual_project_id: str | None = None
+
+_REFERENCIA_CONTEXTUAL = frozenset({
+    "esta", "essa", "este", "esse", "isso", "aquela", "aquele", "aquilo",
+    "dessa", "desse", "nessa", "nesse",
+})
+
 
 def _get_project_brain_store() -> ProjectBrainStore:
     """Store lazy e reaproveitado (mesma conexao SQLite, WAL) por processo."""
@@ -122,6 +141,43 @@ def _extrair_ad_library_id(texto: str) -> str | None:
     return None
 
 
+def _buscar_por_ad_library_id(ad_library_id: str) -> dict | str:
+    url = settings.SUPABASE_URL.rstrip("/")
+    try:
+        resp = requests.get(
+            f"{url}/rest/v1/collected_ads",
+            headers=_headers(),
+            params={"select": "*", "ad_library_id": f"eq.{ad_library_id}", "limit": "1"},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        linhas = resp.json()
+    except requests.exceptions.RequestException as exc:
+        return f"Nao consegui consultar o ScalaFlow agora: {exc}"
+    if linhas:
+        return linhas[0]
+    return f"Nao encontrei nenhum anuncio com ad_library_id={ad_library_id} no ScalaFlow."
+
+
+def _resolver_por_foco_atual() -> dict | str:
+    """Reusa a oferta da ultima investigacao (ver `_foco_atual_project_id`)."""
+    if not _foco_atual_project_id:
+        return (
+            "Nao sei a qual oportunidade voce se refere -- ainda nao investiguei "
+            "nenhuma nesta sessao. Indique um link do anuncio (Meta Ads Library) "
+            "ou peca por 'minha melhor oferta' / 'meus favoritos' / 'minhas ofertas "
+            "salvas' / 'minha oferta escalada' para eu comecar."
+        )
+    store = _get_project_brain_store()
+    brain = store.load(_foco_atual_project_id)
+    if not brain or not brain.origem.source_offer_id:
+        return (
+            "Nao consegui recuperar a oportunidade que estavamos discutindo. "
+            "Indique novamente um link do anuncio ou peca por 'minha melhor oferta'."
+        )
+    return _buscar_por_ad_library_id(brain.origem.source_offer_id)
+
+
 def _resolver_oferta(texto: str) -> dict | str:
     """
     Resolve qual anuncio investigar a partir do texto do usuario. Reaproveita
@@ -136,23 +192,18 @@ def _resolver_oferta(texto: str) -> dict | str:
 
     ad_library_id = _extrair_ad_library_id(texto)
     if ad_library_id:
-        url = settings.SUPABASE_URL.rstrip("/")
-        try:
-            resp = requests.get(
-                f"{url}/rest/v1/collected_ads",
-                headers=_headers(),
-                params={"select": "*", "ad_library_id": f"eq.{ad_library_id}", "limit": "1"},
-                timeout=15,
-            )
-            resp.raise_for_status()
-            linhas = resp.json()
-        except requests.exceptions.RequestException as exc:
-            return f"Nao consegui consultar o ScalaFlow agora: {exc}"
-        if linhas:
-            return linhas[0]
-        return f"Nao encontrei nenhum anuncio com ad_library_id={ad_library_id} no ScalaFlow."
+        return _buscar_por_ad_library_id(ad_library_id)
 
     texto_lower = texto.lower()
+
+    # Referencia contextual ("essa oportunidade", "isso", "dessa oferta", ...)
+    # -- NAO reaproveita "melhor oferta" fresca; usa o que estava em foco.
+    # Nunca inventa: se nao houver foco, pede pra indicar (ver
+    # `_resolver_por_foco_atual`).
+    palavras = set(texto_lower.split())
+    if palavras & _REFERENCIA_CONTEXTUAL:
+        return _resolver_por_foco_atual()
+
     if "favorit" in texto_lower:
         resultado = _buscar_anuncios(limite=1, somente_favoritos=True)
         vazio_msg = "Voce ainda nao tem favoritos no ScalaFlow."
@@ -253,6 +304,8 @@ def _contar_concorrencia_scalaflow(keyword: str | None, excluir_id: str) -> str:
 
 def investigar_oportunidade(entrada: str) -> str:
     """Investiga uma oferta do ScalaFlow e devolve um resumo pronto pro Telegram."""
+    global _foco_atual_project_id
+
     oferta = _resolver_oferta(entrada)
     if isinstance(oferta, str):
         return oferta
@@ -297,6 +350,7 @@ def investigar_oportunidade(entrada: str) -> str:
     brain.registrar_run("opportunity_analyst", f"Investigou oferta {brain.origem.source_offer_id}")
     brain.registrar_decisao(decisao.path, decisao.motivo)
     store.save(brain)
+    _foco_atual_project_id = brain.project_id
 
     label, emoji = _PATH_LABEL.get(decisao.path, (decisao.path, ""))
     if decisao.dados_faltantes:
@@ -344,9 +398,22 @@ def get_tools() -> list[Tool]:
             "Investiga uma oferta do ScalaFlow cruzando sinais reais de "
             "TikTok/Instagram/YouTube/Google Trends e recomenda um caminho "
             "(sem inventar dado, sem LLM)",
-            ["investigue", "investigar", "investigacao", "analise", "analisar",
-             "analisa", "oportunidade", "oportunidades", "sinais", "sinal",
-             "caminho", "decisao", "decision"],
+            [
+                "investigue", "investigar", "investigacao", "analise", "analisar",
+                "analisa", "oportunidade", "oportunidades", "sinais", "sinal",
+                "caminho", "decisao", "decision",
+                # Continuacao de uma investigacao ja em andamento (ex.: "isso
+                # aparece no TikTok?"). So chegam aqui mensagens que o
+                # orchestrator ja roteou pro opportunity_analyst (ver
+                # `_CONTINUACAO_OPORTUNIDADE_KEYWORDS` em agents/orchestrator.py) --
+                # essa lista precisa ser um superset da de la, senao o
+                # SpecialistAgent nao acha a Tool e cai no LLM (Ollama).
+                "tiktok", "meta", "facebook", "instagram", "youtube", "google",
+                "trends", "tendencia", "tendencias", "aparece", "evidencia",
+                "evidencias", "fonte", "fontes", "esta", "essa", "este", "esse",
+                "isso", "aquela", "aquele", "aquilo", "dessa", "desse", "nessa",
+                "nesse",
+            ],
             investigar_oportunidade,
         ),
     ]

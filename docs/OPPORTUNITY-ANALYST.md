@@ -15,6 +15,25 @@ investigue, investigar, investigacao, analise, analisar, analisa,
 oportunidade, oportunidades, sinais, sinal, caminho, decisao, decision
 ```
 
+**Continuação sem palavra inicial fixa** (corrigido na revisão da Fase 2):
+se o **último agente da conversa** já foi o `opportunity_analyst`, uma
+mensagem nova que contenha um nome de plataforma (tiktok/meta/facebook/
+instagram/youtube/google/trends) ou uma referência ("essa", "isso",
+"aquela", "dessa", "nessa", "aparece", "evidência", "fonte") continua
+roteando para o `opportunity_analyst` — **sem exigir que a frase comece**
+com essa palavra. Isso só entra em jogo quando o agente anterior já era o
+Opportunity Analyst, então não risca o roteamento de mensagens novas e não
+relacionadas (ex.: "crie uma legenda pro meu tiktok" continua indo pro
+`social_media` normalmente, porque o último agente não era o Opportunity
+Analyst). Ver `AgentOrchestrator._eh_continuacao_opportunity` e
+`_CONTINUACAO_OPORTUNIDADE_KEYWORDS` em `agents/orchestrator.py`.
+
+Essa mesma lista de palavras também precisa existir nas *keywords* da
+`Tool` em `tools/opportunity_tools.py:get_tools()` — o `SpecialistAgent`
+re-checa a Tool de forma independente do roteamento do orchestrator: sem
+isso, o agente era escolhido certo mas não achava a ferramenta e caía no
+LLM (bug real encontrado e corrigido nesta revisão).
+
 ## Como resolve QUAL oferta investigar
 
 Não há um seletor explícito de oferta na conversa ainda (ver Limitações).
@@ -29,10 +48,26 @@ Ordem de resolução, em `tools/opportunity_tools.py:_resolver_oferta`:
    maior score.
 4. Mensagem menciona **"escalad"** → a oferta escalada (`score >= 80`) de
    maior score.
-5. Caso contrário → a oferta de maior score no ScalaFlow, sem filtro.
+5. Mensagem usa uma **palavra de referência** ("essa", "isso", "aquela",
+   "dessa", "nessa", "este", ...) → reusa o **projeto em foco**: a última
+   oportunidade investigada (`_foco_atual_project_id`), buscando o anúncio
+   de novo pelo `source_offer_id` salvo no Project Brain — nunca escolhe
+   "a melhor oferta" do zero quando a mensagem claramente se refere a algo
+   já discutido. Se não houver nenhum foco ainda (primeira mensagem da
+   sessão), responde pedindo pra indicar a oportunidade em vez de adivinhar.
+6. Caso contrário (nenhum sinal explícito, ex.: "investigue minha melhor
+   oferta") → a oferta de maior score no ScalaFlow, sem filtro.
 
 Isso **reaproveita** a função já existente do Marco 1 em vez de duplicar
 lógica de consulta ao Supabase.
+
+**Limitação conhecida e aceita nesta fase**: o "projeto em foco" é global
+por processo, não por usuário (`tools/opportunity_tools.py` mantém uma
+única variável, não um dicionário por `user_id`). Isso é seguro enquanto o
+CRIS OS atende uma única pessoa (`TELEGRAM_ALLOWED_USER_ID`). Passar a ser
+por usuário exigiria mudar a assinatura hoje compartilhada de `Tool.fn`
+(`tools/base.py`), que só recebe o texto da mensagem — fica para quando o
+multi-tenant for implementado de verdade.
 
 ## Como cruza sinais reais (TikTok obrigatório, conforme pedido)
 
@@ -113,23 +148,24 @@ O relatório completo (todos os sinais, métricas cruas) fica no Project Brain
   "Sem evidência disponível" em todas as fontes (cost-first).
 - Falha de rede/timeout em qualquer fonte → capturada, não derruba o
   processo, segue para as próximas fontes.
+- Sequência real de conversa testada de ponta a ponta (mesmo
+  `AgentOrchestrator`, mesmo `user_id`): "investigue uma das minhas melhores
+  ofertas" → "analise esta oportunidade" → "quais sinais temos dessa
+  oportunidade?" → "isso aparece no TikTok?" → "qual caminho faz sentido
+  para essa oportunidade?" — as 5 mensagens respondem sobre o **mesmo**
+  projeto, sem repetir link nem reintroduzir a oferta.
 
 ## Limitações
 
-- **Sem contexto de conversa**: "Cris, isso aparece no TikTok?" (perguntando
-  sobre a oportunidade discutida na mensagem anterior) **não funciona ainda**
-  — a mensagem não contém nenhuma das palavras-chave de interceptação nem
-  começa com uma palavra de "followup" (o mecanismo de followup existente
-  exige que a PRIMEIRA palavra da mensagem seja um gatilho como "isso"/"sim";
-  como a Cris normalmente escreve "Cris, isso...", a primeira palavra é
-  "Cris," e o followup não dispara). Um pedido autocontido funciona bem hoje
-  (ex.: "Investigue se aparece no TikTok a oferta com o ID ..."). Ligar isso
-  a um project_id "em foco" fica para uma fase futura.
-- Deliberadamente **não** adicionei "tiktok"/"instagram"/"youtube" às
-  palavras-chave de interceptação do Opportunity Analyst: essas palavras já
-  pertencem ao agente `social_media` (ex.: "crie uma legenda pro meu
-  tiktok"); adicioná-las quebraria o roteamento desse agente para qualquer
-  menção a uma rede social.
+- "tiktok"/"instagram"/"youtube"/etc. **não** entram na interceptação
+  *primária* do Opportunity Analyst (`_OPPORTUNITY_KEYWORDS`): essas
+  palavras já pertencem ao agente `social_media` (ex.: "crie uma legenda pro
+  meu tiktok"), e usá-las como gatilho primário quebraria o roteamento desse
+  agente para qualquer menção a uma rede social. Elas só valem como sinal de
+  **continuação** (`_CONTINUACAO_OPORTUNIDADE_KEYWORDS`), e só quando o
+  último agente da conversa já era o Opportunity Analyst — daí não conflita.
+- O "projeto em foco" (contexto do follow-up) é global por processo, não
+  por usuário — ver a nota na seção "Como resolve QUAL oferta investigar".
 - Seleção de oferta por "melhor score" / "salvei" / "favorito" pega o de
   **maior score** dentro do filtro, não necessariamente o mais recente
   (mesma ordenação que `tools/scalaflow_tools.py` já usa).

@@ -202,3 +202,67 @@ def test_opportunity_analyst_intercepta_antes_do_scalaflow_e_do_llm(mensagem):
     agente = orc._escolher_agente("user1", mensagem)
     assert agente is not None
     assert agente.name == "opportunity_analyst"
+
+
+def test_continuacao_sem_palavra_inicial_fixa_quando_ultimo_agente_foi_opportunity():
+    """'Cris, isso aparece no TikTok?' nao tem nenhuma keyword primaria do
+    opportunity_analyst nem do scalaflow -- so deve rotear pra la porque a
+    ULTIMA mensagem da conversa ja foi respondida pelo opportunity_analyst."""
+    orc = _orchestrator()
+    orc.last_agents["user1"] = "opportunity_analyst"
+    agente = orc._escolher_agente("user1", "Cris, isso aparece no TikTok?")
+    assert agente is not None
+    assert agente.name == "opportunity_analyst"
+
+
+def test_continuacao_nao_dispara_sem_contexto_previo():
+    """A mesma frase, SEM o ultimo agente ter sido opportunity_analyst, nao
+    pode ser sequestrada -- preserva o roteamento de 'tiktok' para outros
+    agentes (ex.: social_media) via LLM/keyword normal."""
+    orc = _orchestrator()
+    agente = orc._escolher_agente("user1", "Cris, isso aparece no TikTok?")
+    assert agente is None or agente.name != "opportunity_analyst"
+
+
+def test_continuacao_nao_sequestra_comando_scalaflow_mesmo_apos_opportunity():
+    """Depois de investigar uma oportunidade, um comando CLARO de listagem
+    (scalaflow_intel) continua funcionando -- nao fica preso no
+    opportunity_analyst so porque foi o ultimo agente usado."""
+    orc = _orchestrator()
+    orc.last_agents["user1"] = "opportunity_analyst"
+    agente = orc._escolher_agente("user1", "Mostre 5 ofertas escaladas")
+    assert agente is not None
+    assert agente.name == "scalaflow_intel"
+
+
+# ---------------------------------------------------------------------------
+# Resolucao de oferta por contexto/foco (sem rede -- so o caminho "sem foco")
+# ---------------------------------------------------------------------------
+
+def test_resolver_por_foco_sem_investigacao_previa_pede_para_indicar(monkeypatch):
+    import tools.opportunity_tools as ot
+
+    monkeypatch.setattr(ot, "_foco_atual_project_id", None)
+    resultado = ot._resolver_por_foco_atual()
+    assert isinstance(resultado, str)
+    assert "Nao sei a qual oportunidade" in resultado
+
+
+def test_resolver_oferta_com_referencia_contextual_usa_foco(monkeypatch):
+    """'Isso aparece no TikTok?' deve consultar o foco atual, nao reiniciar
+    a busca por 'melhor oferta' do zero."""
+    import tools.opportunity_tools as ot
+
+    monkeypatch.setattr(ot.settings, "SUPABASE_URL", "https://exemplo.supabase.co")
+    monkeypatch.setattr(ot.settings, "SUPABASE_SERVICE_KEY", "chave-fake-de-teste")
+
+    chamado = {}
+
+    def fake_foco():
+        chamado["usado"] = True
+        return {"id": "abc", "score": 90}
+
+    monkeypatch.setattr(ot, "_resolver_por_foco_atual", fake_foco)
+    resultado = ot._resolver_oferta("Cris, isso aparece no TikTok?")
+    assert chamado.get("usado") is True
+    assert resultado == {"id": "abc", "score": 90}
