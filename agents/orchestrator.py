@@ -44,6 +44,16 @@ _SCALAFLOW_KEYWORDS = frozenset({
     "escalado", "escalados", "escalada", "escaladas",
 })
 
+# Opportunity Analyst tambem e 100% deterministico (Fase 2, sem LLM). Checado
+# ANTES do scalaflow_intel: frases como "investigue uma das minhas melhores
+# ofertas" contem palavras de ambos os agentes ("ofertas" + "investigue"), e a
+# intencao de INVESTIGAR uma oferta especifica deve vencer a de LISTAR ofertas.
+_OPPORTUNITY_KEYWORDS = frozenset({
+    "investigue", "investigar", "investigacao", "analise", "analisar",
+    "analisa", "oportunidade", "oportunidades", "sinais", "sinal",
+    "caminho", "decisao", "decision",
+})
+
 
 def _model_name(llm: object) -> str:
     """Extrai o nome do modelo do provedor LLM."""
@@ -201,7 +211,17 @@ class AgentOrchestrator:
                 )
                 return self.agents[ultimo]
 
-        # 3) Interceptacao deterministica do ScalaFlow (sem chamar o LLM)
+        # 3) Interceptacao deterministica do Opportunity Analyst (checada ANTES
+        #    do scalaflow_intel -- "investigue essa oferta" nao pode virar uma
+        #    listagem de ofertas)
+        if "opportunity_analyst" in self.agents and self._eh_comando_opportunity(texto):
+            logger.info(
+                "=== [ORCHESTRATOR] Interceptacao deterministica: 'opportunity_analyst' "
+                "(sem passar pelo LLM/Ollama) ===",
+            )
+            return self.agents["opportunity_analyst"]
+
+        # 4) Interceptacao deterministica do ScalaFlow (sem chamar o LLM)
         if "scalaflow_intel" in self.agents and self._eh_comando_scalaflow(texto):
             logger.info(
                 "=== [ORCHESTRATOR] Interceptacao deterministica: 'scalaflow_intel' "
@@ -209,7 +229,7 @@ class AgentOrchestrator:
             )
             return self.agents["scalaflow_intel"]
 
-        # 4) Roteamento via LLM + keyword fallback
+        # 5) Roteamento via LLM + keyword fallback
         nome_agente = self._rotear(texto)
         if nome_agente and nome_agente in self.agents:
             return self.agents[nome_agente]
@@ -224,6 +244,15 @@ class AgentOrchestrator:
             return True
         texto_lower = texto.lower()
         return any(kw in texto_lower for kw in _SCALAFLOW_KEYWORDS)
+
+    @staticmethod
+    def _eh_comando_opportunity(texto: str) -> bool:
+        """Detecta comandos do Opportunity Analyst por palavra-chave (sem LLM)."""
+        palavras = set(texto.lower().split())
+        if palavras & _OPPORTUNITY_KEYWORDS:
+            return True
+        texto_lower = texto.lower()
+        return any(kw in texto_lower for kw in _OPPORTUNITY_KEYWORDS)
 
     @staticmethod
     def _eh_followup(texto: str) -> bool:
@@ -280,7 +309,8 @@ class AgentOrchestrator:
               "prospeccao", "comercial", "argumentario"], "vendas"),
             (["atendimento", "suporte", "reclamacao", "cancelamento",
               "troca", "devolucao"], "atendimento"),
-            (["analise", "pesquisa", "concorrente", "concorrentes",
+            (list(_OPPORTUNITY_KEYWORDS), "opportunity_analyst"),
+            (["pesquisa", "concorrente", "concorrentes",
               "fornecedor", "mercado", "tendencia",
               "comparar", "comparacao", "preco"], "pesquisador"),
             (["copy", "conversao", "headline", "landing"], "copywriter"),
@@ -342,6 +372,9 @@ class AgentOrchestrator:
             "comercial": "vendas",
             "scalaflow": "scalaflow_intel",
             "produtos": "scalaflow_intel",
+            "investigar": "opportunity_analyst",
+            "oportunidade": "opportunity_analyst",
+            "analyst": "opportunity_analyst",
         }
         n = nome.strip().lower().replace("-", "_")
         return aliases.get(n, n)

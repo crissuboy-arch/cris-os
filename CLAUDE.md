@@ -36,6 +36,11 @@ automatizando rotina, projetos e decisões — e crescer por anos sem reescrever
 - **Validar sem subir nada:** `python -m pytest tests/agent_builder/`.
 - **Onde paramos:** [memory.md](memory.md) · **auditoria:** [OS-AUDIT.md](OS-AUDIT.md).
 - **Foco atual:** CRIS OS Studio v0.6.0 (interface visual completa).
+- **Checkpoint Git:** quando a Cris disser "está OK / aprovado / pode
+  finalizar" sobre uma etapa, seguir o processo fixo em
+  [docs/CHECKPOINT-GIT.md](docs/CHECKPOINT-GIT.md) (testar → verificar
+  segredos → documentar → commit → push só se autorizado). Aprovação de etapa
+  **não** inicia a próxima fase automaticamente.
 
 ## As 6 camadas (modelo os-coach adaptado ao CRIS OS)
 1. **Identity** → este arquivo.
