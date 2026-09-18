@@ -69,6 +69,22 @@ Essas 5 capabilities existem hoje como **campos** do `BusinessPlan`
 — reservadas aqui só pra documentar a intenção de uma fase futura separar
 isso em execuções independentes.
 
+## `PAID_TRAFFIC_ARCHITECT` (Fase 5) — exceção deliberada
+
+Ao contrário de `BUSINESS_BUILDER`/`PRODUCT_FACTORY` (ver seção abaixo),
+`PAID_TRAFFIC_ARCHITECT` **é** registrada aqui, por pedido explícito da
+Fase 5: é genuinamente invocada via `registry.executar(PAID_TRAFFIC_ARCHITECT,
+brain=..., llm=..., orcamento_informado=..., versao_anterior=...)` a partir de
+`tools/paid_traffic_tools.py`, com executor real (`core.paid_traffic_architect.criar_plano_trafego`).
+Único desvio do contrato usual do registry: o executor devolve um objeto
+`TrafficPlan`, não uma `str` (`Callable[..., str]` era a convenção até aqui)
+— documentado aqui para não ser "corrigido" por engano numa fase futura.
+Ver [PAID-TRAFFIC-ARCHITECT.md](PAID-TRAFFIC-ARCHITECT.md).
+
+| Capability | Status | Fornecedor | Observação |
+|---|---|---|---|
+| `PAID_TRAFFIC_ARCHITECT` | **AVAILABLE** | OpenRouter (tier inteligente) | Nunca executa campanha real — só planeja |
+
 ## Por que `BUSINESS_BUILDER` e `PRODUCT_FACTORY` NÃO estão registrados aqui
 
 Este registry cataloga capabilities de **produção de ativos**, não os

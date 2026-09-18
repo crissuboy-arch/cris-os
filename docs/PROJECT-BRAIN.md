@@ -36,6 +36,7 @@ ProjectBrain
 ├── business_plan    (BusinessPlan | None -- Fase 4, ver BUSINESS-BUILDER.md)
 ├── production_plan  (ProductionPlan | None -- Fase 4, ver PRODUCTION-PLAN.md)
 ├── artifact_manifest (dict | None -- Fase 4, DERIVADO, ver ARTIFACT-MANIFEST.md)
+├── traffic_plan     (TrafficPlan | None -- Fase 5, ver PAID-TRAFFIC-ARCHITECT.md)
 ├── brand            (brand_name, slogan, colors, fonts, visual_direction)
 ├── assets           (landing_page, creatives, videos, documents, drive_folder)
 ├── trafego          (channels, campaigns, budgets, results)
@@ -57,6 +58,11 @@ seções do mesmo `ProjectBrain`, salvas com o mesmo `ProjectBrainStore.save()`
 de sempre (nenhuma migration, nenhum schema novo no SQLite -- o `content` já
 era um JSON opaco, então novos campos no dataclass Python não exigem
 nenhuma mudança em `storage/sqlite_memory.py`).
+
+**Fase 5 (Paid Traffic Architect)**: mesmo princípio -- `traffic_plan` é só
+mais uma seção do mesmo `ProjectBrain`, mesmo `project_id`, mesmo
+`ProjectBrainStore.save()`. Nenhum banco/JSON paralelo foi criado para
+armazenar planos de tráfego pago.
 
 ## API
 

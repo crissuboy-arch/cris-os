@@ -1,11 +1,12 @@
-# CRIS OS — Arquitetura (Fase 2 + Fase 2.5 + Fase 3 + Fase 4)
+# CRIS OS — Arquitetura (Fase 2 + Fase 2.5 + Fase 3 + Fase 4 + Fase 5)
 
 > Visão de arquitetura da camada inteligente construída na Fase 2 (Project
 > Brain + Opportunity Analyst + Decision Engine), do provedor de IA remota
 > da Fase 2.5 (OpenRouter), do Product Architect + Product Factory
-> (fundação) da Fase 3, e do Business Builder + Product Factory completada
-> (plano de produção por tipo + Artifact Manifest) da Fase 4, em cima do
-> Marco 1
+> (fundação) da Fase 3, do Business Builder + Product Factory completada
+> (plano de produção por tipo + Artifact Manifest) da Fase 4, e do Paid
+> Traffic Architect (plano de tráfego pago estruturado, nunca executado) da
+> Fase 5, em cima do Marco 1
 > ([docs/MARCO-01-TELEGRAM-SCALAFLOW.md](MARCO-01-TELEGRAM-SCALAFLOW.md)).
 > Docs específicos da Fase 3: [PRODUCT-ARCHITECT.md](PRODUCT-ARCHITECT.md),
 > [PRODUCT-BLUEPRINT.md](PRODUCT-BLUEPRINT.md),
@@ -13,7 +14,8 @@
 > [TOOL-REGISTRY.md](TOOL-REGISTRY.md). Docs específicos da Fase 4:
 > [BUSINESS-BUILDER.md](BUSINESS-BUILDER.md),
 > [PRODUCTION-PLAN.md](PRODUCTION-PLAN.md),
-> [ARTIFACT-MANIFEST.md](ARTIFACT-MANIFEST.md).
+> [ARTIFACT-MANIFEST.md](ARTIFACT-MANIFEST.md). Doc específico da Fase 5:
+> [PAID-TRAFFIC-ARCHITECT.md](PAID-TRAFFIC-ARCHITECT.md).
 
 ## Princípio central
 
@@ -58,6 +60,9 @@ automação, ou por outro canal, sem mudar uma linha de `agents/` ou `tools/`.
 | Agente Product Factory (expõe plano de produção sob demanda) | `agents/product_factory.py` + `tools/product_factory_tools.py` | Fase 4 |
 | Plano de produção específico por tipo + persistência | `core/product_factory.py` (`_passos_para_tipo`, `persistir_plano`) | Fase 4 |
 | Artifact Manifest (estrutura lógica, derivada, sem Drive) | `core/artifact_manifest.py` | Fase 4 |
+| Agente Paid Traffic Architect (produto aprovado → plano de tráfego) | `agents/paid_traffic_architect.py` + `tools/paid_traffic_tools.py` | Fase 5 |
+| Lógica do Paid Traffic Architect (LLM tier inteligente + fallback) | `core/paid_traffic_architect.py` | Fase 5 |
+| Evidence Guard (sanitiza claims herdadas/inventadas) | `core/evidence_guard.py` | Fase 4, estendido na Fase 5 |
 
 ## Fluxo completo (Fase 2)
 
@@ -147,6 +152,42 @@ detalhes em [PRODUCT-ARCHITECT.md](PRODUCT-ARCHITECT.md#persistência-por-usuár
   → NENHUMA publicação/compra/gasto/deploy acontece aqui -- fora de escopo
     ate uma fase futura com aprovação humana explicita separada
 ```
+
+## Fluxo completo (Fase 5 — Paid Traffic Architect)
+
+```
+... (Product Architect + aprovação humana do PRODUTO, como acima) ...
+  → agents/paid_traffic_architect.py (SpecialistAgent)
+  → tools/paid_traffic_tools.py:gerenciar_trafego(entrada, session)
+       a. resolve o MESMO projeto em foco (nenhum "projeto atual" novo)
+       b. core/paid_traffic_architect.py:avaliar_prontidao() -- gate: produto
+          aprovado, publico/pais/posicionamento definidos, evidencia real
+          registrada (fonte CANONICA: ProjectBrain.coletar_evidencias_pesquisa(),
+          a MESMA que o Artifact Manifest usa -- corrige bug real onde os
+          dois discordavam sobre o mesmo projeto)
+       c. sem lacuna -> core/paid_traffic_architect.py:criar_plano_trafego()
+          via Tool Registry (`registry.executar(PAID_TRAFFIC_ARCHITECT, ...)`)
+          -- OpenRouter tier INTELIGENTE gera o TrafficPlan inteiro (canais,
+          angulos, criativos-a-produzir, teste, medicao, orcamento)
+       d. Evidence Guard sanitiza todo campo textual livre do plano (nunca
+          herda claim do concorrente como fato do produto novo)
+       e. exatamente 1 canal PRIMARY_TEST e imposto deterministicamente
+          (_impor_um_unico_primary_test) -- zero canais qualificados ->
+          plano volta para NEEDS_INFORMATION em vez de fingir prontidao
+       f. persiste no MESMO ProjectBrain (`traffic_plan`)
+  → resposta (plano com canais tratados como HIPOTESE de teste, nunca fato;
+    nenhuma metrica/orcamento/resultado inventado)
+  → aprovacao humana explicita separada ("Aprovado" -> status APPROVED)
+  → NENHUMA acao externa acontece aqui -- sem login/API de Ads, sem
+    campanha criada/publicada, sem gasto real, mesmo depois de aprovado
+```
+
+**Cost-first no Paid Traffic Architect**: leitura/status/manifesto (10-Trafego-Pago/)
+tem zero chamadas de LLM e zero escrita no Project Brain -- só a
+criação/revisão real do plano usa o tier INTELIGENTE (mesma classe de
+problema do Product Architect: escolher entre canais exige julgamento, não
+é estruturação simples). Um resultado `NEEDS_INFORMATION` nunca é tratado
+como cache final -- sempre reavaliado de graça na proxima tentativa.
 
 **Cost-first no Business Builder**: diferente do Product Architect (tier
 INTELIGENTE, precisa escolher entre 22+ formatos), o Business Builder usa o
@@ -343,6 +384,43 @@ Manifest) estão em
 Ver [PRODUCT-ARCHITECT.md](PRODUCT-ARCHITECT.md), [BUSINESS-BUILDER.md](BUSINESS-BUILDER.md)
 e [ARTIFACT-MANIFEST.md](ARTIFACT-MANIFEST.md) para o detalhamento completo
 de cada correção.
+
+Limitações específicas da Fase 5 (Paid Traffic Architect) estão em
+[PAID-TRAFFIC-ARCHITECT.md](PAID-TRAFFIC-ARCHITECT.md#limitações-conhecidas).
+Resumo:
+
+- Nenhuma execução real de tráfego (login/API de Ads, criação/publicação de
+  campanha, gasto real) existe nesta fase — só planejamento.
+- Google Search sempre cai em `REQUIRES_KEYWORD_DATA` — sem fonte real de
+  volume de busca/CPC integrada ainda.
+- Evidence Guard continua baseado em padrões conhecidos (regex/categorias),
+  não em compreensão semântica plena — vale para a 5ª categoria adicionada
+  nesta fase (métricas de tráfego pago inventadas) também.
+- Resposta do Telegram pode ficar extensa para planos com vários canais —
+  já dividida automaticamente, mas sem resumo/paginação (melhoria de UX
+  registrada para fase futura, deliberadamente fora de escopo agora).
+
+**Correções pós-teste real da Fase 5 (4 rounds, resumo)**:
+1. Paid Traffic Architect não enxergava evidência que o Artifact Manifest já
+   mostrava para o mesmo projeto — corrigido com a fonte canônica única
+   `ProjectBrain.coletar_evidencias_pesquisa()`, usada por ambos.
+2. Resultado `NEEDS_INFORMATION` ficava congelado (cache indevido de um
+   resultado que não custou LLM nenhum) — corrigido: só resultados que
+   custaram uma chamada real ou representam decisão humana
+   (`READY_FOR_APPROVAL`/`APPROVED`/`REJECTED`) são reaproveitados.
+3. Auditoria de qualidade (mercado ausente exibido como "?", campos sem
+   Evidence Guard, sem guarda formal de prova social/orçamento, mais de um
+   canal podendo aparecer como prioritário ao mesmo tempo) — corrigida com
+   `REQUIRES_MARKET_DATA`/resolução por fallback, `_lista_limpa()` em todos
+   os campos livres, `social_proof_status`/`budget_status` explícitos, e o
+   vocabulário `PRIMARY_TEST`/`SECONDARY_TEST`/`LATER`/`NOT_RECOMMENDED_NOW`
+   com exatamente um `PRIMARY_TEST` imposto deterministicamente.
+4. Regex da categoria 5 do Evidence Guard (métrica de tráfego inventada)
+   não capturava frases como "ROAS esperado de 3x" com uma única
+   alternação — corrigido com dois grupos opcionais independentes.
+
+Ver [PAID-TRAFFIC-ARCHITECT.md](PAID-TRAFFIC-ARCHITECT.md) para o
+detalhamento completo.
 
 ## Como restaurar / adicionar novas Skills
 

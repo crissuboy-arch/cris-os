@@ -263,9 +263,9 @@ def test_discover_agents_carrega_todos():
         "marketing", "social_media", "vendas", "atendimento",
         "programador", "pesquisador", "copywriter", "produtividade",
         "scalaflow_intel", "opportunity_analyst", "product_architect",
-        "business_builder", "product_factory",
+        "business_builder", "product_factory", "paid_traffic_architect",
     }
-    assert len(agentes) == 13
+    assert len(agentes) == 14
 
 
 def test_discover_general_agent():

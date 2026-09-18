@@ -43,11 +43,20 @@ EMAIL_SEQUENCE_PLANNER = "EMAIL_SEQUENCE_PLANNER"
 CONTENT_PLANNER = "CONTENT_PLANNER"
 LAUNCH_PLANNER = "LAUNCH_PLANNER"
 
+# Capability de PLANEJAMENTO de trafego pago (Fase 5). Diferente de
+# BUSINESS_BUILDER/PRODUCT_FACTORY (agentes completos, invocados direto pelo
+# orchestrator, deliberadamente NAO registrados aqui -- ver docstring de
+# `criar_registry_padrao`), esta capability E registrada e EXECUTADA de
+# verdade via `registry.executar(...)` por `tools/paid_traffic_tools.py`
+# (pedido explicito da Fase 5) -- nao e uma capability "de mentirinha".
+PAID_TRAFFIC_ARCHITECT = "PAID_TRAFFIC_ARCHITECT"
+
 TODAS_AS_CAPABILITIES = (
     MINI_APP_BUILDER, IMAGE_GENERATOR, VIDEO_GENERATOR, COPY_GENERATOR,
     LANDING_PAGE_BUILDER, CODE_GENERATOR, DRIVE_STORAGE, GITHUB, VERCEL,
     BUSINESS_BUILDER, SALES_PAGE_PLANNER, FUNNEL_PLANNER,
     EMAIL_SEQUENCE_PLANNER, CONTENT_PLANNER, LAUNCH_PLANNER,
+    PAID_TRAFFIC_ARCHITECT,
 )
 
 # Status legivel de uma capability (Fase 4 -- pedido explicito: "cada
@@ -223,4 +232,19 @@ def criar_registry_padrao() -> ToolRegistry:
     # CONSOMEM este registry (ver docs/TOOL-REGISTRY.md). Registra-los aqui
     # seria uma capability "de mentirinha" (nunca executada via
     # `registry.executar`) -- por isso ficam de fora de proposito.
+    #
+    # PAID_TRAFFIC_ARCHITECT (Fase 5) E diferente: pedido explicito da Fase 5
+    # foi registra-la de verdade -- `tools/paid_traffic_tools.py` chama
+    # `registry.executar(PAID_TRAFFIC_ARCHITECT, ...)` como o caminho REAL de
+    # geracao do plano (nao um wrapper cosmetico). Excecao documentada ao
+    # padrao de `executor: Callable[..., str]`: o executor aqui devolve um
+    # `TrafficPlan` (objeto estruturado), nao uma string -- `executar()` nao
+    # forca o tipo, e o consumidor (tools/) sabe disso.
+    from core.paid_traffic_architect import criar_plano_trafego
+
+    registry.registrar(
+        PAID_TRAFFIC_ARCHITECT, provider_name="openrouter", disponivel=True,
+        executor=criar_plano_trafego,
+        observacao="planejamento de trafego pago via OpenRouter (tier inteligente) -- nunca executa campanha",
+    )
     return registry

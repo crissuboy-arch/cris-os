@@ -36,16 +36,18 @@ _PASTAS = (
 
 
 def _pasta_pesquisa(brain: ProjectBrain) -> dict:
+    """
+    Usa `ProjectBrain.coletar_evidencias_pesquisa()` -- a MESMA fonte
+    canonica que `core/paid_traffic_architect.py:avaliar_prontidao` usa
+    (correcao de bug real, Fase 5: antes, o manifesto contava headline/copy/
+    score/caminho_decidido pro `conteudo`, mas checava so
+    `oportunidade.evidence` pro `status` -- inconsistencia interna que podia
+    mostrar "4 evidencias" e `status: vazio` ao mesmo tempo).
+    """
+    evidencias = brain.coletar_evidencias_pesquisa()
     return {
-        "conteudo": [
-            item for item in [
-                f"headline: {brain.origem.source_headline}" if brain.origem.source_headline else None,
-                f"copy: {brain.origem.source_copy}" if brain.origem.source_copy else None,
-                f"score_scalaflow: {brain.oportunidade.score}" if brain.oportunidade.score is not None else None,
-                f"caminho_decidido: {brain.decisao.recommended_path}" if brain.decisao.recommended_path else None,
-            ] if item
-        ],
-        "status": "presente" if brain.oportunidade.evidence else "vazio",
+        "conteudo": evidencias,
+        "status": "presente" if evidencias else "vazio",
     }
 
 
@@ -114,6 +116,18 @@ def _pasta_funil(brain: ProjectBrain) -> dict:
     return {"conteudo": [bplan.funnel_structure], "status": "planejado (nao executado)"}
 
 
+def _pasta_trafego_pago(brain: ProjectBrain) -> dict:
+    """Fase 5 -- reflete `brain.traffic_plan.status` real, nunca uma segunda
+    fonte de verdade: EMPTY/NOT_STARTED antes de existir plano,
+    READY_FOR_APPROVAL depois de gerado, APPROVED depois de aprovacao
+    humana (nunca inferida)."""
+    tp = brain.traffic_plan
+    if not tp:
+        return {"conteudo": [], "status": "EMPTY / NOT_STARTED"}
+    conteudo = [f"{len(tp.channels)} canal(is) avaliado(s)"] if tp.channels else []
+    return {"conteudo": conteudo, "status": tp.status}
+
+
 def gerar_manifest(brain: ProjectBrain) -> dict:
     """
     Deriva o Artifact Manifest inteiro do estado ATUAL do `brain` -- nunca
@@ -130,7 +144,7 @@ def gerar_manifest(brain: ProjectBrain) -> dict:
         "07-Videos": _pasta_generica([], "vazio (geracao de video nao habilitada nesta fase)"),
         "08-Copy": _pasta_copy(brain),
         "09-Funil": _pasta_funil(brain),
-        "10-Trafego-Pago": _pasta_generica([], "vazio (trafego pago fora de escopo ate esta fase)"),
+        "10-Trafego-Pago": _pasta_trafego_pago(brain),
         "11-Resultados": _pasta_generica([], "vazio (nenhuma campanha rodou ainda)"),
     }
     return {
@@ -143,6 +157,7 @@ def gerar_manifest(brain: ProjectBrain) -> dict:
             "status_blueprint": brain.blueprint.decision_status if brain.blueprint else None,
             "status_business_plan": brain.business_plan.approval_status if brain.business_plan else None,
             "status_producao": brain.production_plan.status if brain.production_plan else None,
+            "status_trafego_pago": brain.traffic_plan.status if brain.traffic_plan else None,
             "atualizado_em": brain.identidade.updated_at,
         },
         "sincronizado_com_drive": False,
@@ -209,6 +224,7 @@ def formatar_manifesto_get_current(manifest: dict) -> str:
         f"  status_blueprint: {mp['status_blueprint']}",
         f"  status_business_plan: {mp['status_business_plan']}",
         f"  status_producao: {mp['status_producao']}",
+        f"  status_trafego_pago: {mp['status_trafego_pago']}",
         f"  updated_at: {mp['atualizado_em']}",
     ]
     return "\n".join(linhas)

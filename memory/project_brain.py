@@ -360,6 +360,110 @@ class ProductionPlan:
     status: str = "DRAFT"  # DRAFT | IN_PRODUCTION | READY_TO_PUBLISH | PUBLISHED
 
 
+# Estados validos do Traffic Plan (Fase 5). A criacao SEMPRE termina em
+# NEEDS_INFORMATION (faltou algo essencial) ou READY_FOR_APPROVAL (evidencia
+# suficiente pra montar um plano) -- NUNCA em APPROVED: aprovacao e sempre um
+# ato humano explicito, e "so os que se transformam em APPROVED por texto
+# EXATO" (ver `esta_aprovado()`).
+TRAFFIC_PLAN_ESTADOS_VALIDOS = frozenset({
+    "DRAFT", "NEEDS_INFORMATION", "READY_FOR_APPROVAL", "APPROVED", "REJECTED",
+})
+
+# Canais suportados (vocabulario fechado, mesmo principio do
+# `core/product_architect.py:PRODUCT_TYPES` -- "nao usar preferencia fixa do
+# desenvolvedor", todo canal recomendado pelo LLM e validado contra esta
+# lista, nunca aceito as cegas).
+TRAFFIC_CHANNELS = frozenset({
+    "META_ADS", "GOOGLE_SEARCH", "GOOGLE_DISPLAY", "YOUTUBE_ADS", "TIKTOK_ADS",
+})
+
+# Papel de um canal dentro do plano (nunca "vai funcionar" -- so uma dessas
+# classificacoes honestas). Correcao pos-auditoria (Fase 5): renomeado de
+# CANDIDATE/PRIORITY_TEST/INSUFFICIENT_INFO para deixar a PRIORIZACAO
+# OPERACIONAL explicita -- o plano nunca pode dar a impressao de que varios
+# canais devem comecar ao mesmo tempo. EXATAMENTE UM canal por versao do
+# plano pode ser PRIMARY_TEST (imposto em `core/paid_traffic_architect.py`,
+# nunca confiado ao LLM sozinho); pode haver varios SECONDARY_TEST.
+TRAFFIC_CHANNEL_ROLES = frozenset({
+    "PRIMARY_TEST", "SECONDARY_TEST", "LATER", "NOT_RECOMMENDED_NOW",
+})
+
+
+@dataclass
+class TrafficPlan:
+    """
+    Plano de trafego pago estruturado (Fase 5 -- Paid Traffic Architect).
+    NUNCA executa campanha, NUNCA conecta conta de anuncio, NUNCA inventa
+    metrica/orcamento como fato -- so estrutura HIPOTESES/PLANEJAMENTO em
+    cima de evidencia real ja coletada no Project Brain.
+    """
+
+    project_id: str = ""
+    version: int = 1
+    status: str = "DRAFT"  # DRAFT | NEEDS_INFORMATION | READY_FOR_APPROVAL | APPROVED | REJECTED
+    created_at: str = field(default_factory=_agora)
+    updated_at: str = field(default_factory=_agora)
+
+    # --- contexto/objetivo ---
+    objective: str | None = None
+    # `market`/`country` NUNCA ficam em branco silenciosamente (correcao
+    # pos-auditoria real: renderizar "Mercado: ?" e pior que ser honesto).
+    # Quando o Project Brain genuinamente nao tem essa informacao ainda,
+    # `core/paid_traffic_architect.py` preenche com o literal
+    # "REQUIRES_MARKET_DATA" em vez de deixar `None`.
+    market: str | None = None
+    country: str | None = None
+    language: str | None = None
+    audience_summary: str | None = None
+
+    # --- canais (cada item: role/priority/rationale/campaign_objective/
+    # campaign_structure/ad_sets_or_groups/targeting_strategy/
+    # keyword_strategy/placements/creative_requirements/landing_destination/
+    # conversion_event/test_hypothesis/evidence_used/assumptions/risks) ---
+    channels: list[dict] = field(default_factory=list)
+
+    # --- criativo ---
+    angles: list[str] = field(default_factory=list)
+    hooks: list[str] = field(default_factory=list)
+    creative_matrix: list[dict] = field(default_factory=list)  # angle/hook/format/channel/audience/cta/evidence_or_hypothesis/asset_required
+
+    # --- teste/mensuracao ---
+    testing_plan: list[str] = field(default_factory=list)
+    measurement_plan: list[str] = field(default_factory=list)  # QUAIS metricas observar, nunca resultados
+    stop_conditions: list[str] = field(default_factory=list)
+    scale_conditions: list[str] = field(default_factory=list)
+
+    # --- orcamento -- NUNCA fato, sempre hipotese/preservacao do real ---
+    budget_scenarios: list[dict] = field(default_factory=list)  # [{"nome": "LOW|STANDARD|EXPANDED", "valor": "...", "type": "PLANNING_ASSUMPTION"}]
+    budget_informado_pelo_usuario: dict | None = None  # {"currency","daily_budget","total_test_budget"} -- preservado sem alteracao quando existir
+    # REQUIRES_USER_INPUT | PROVIDED -- correcao pos-auditoria: nunca deixar
+    # implicito que um orcamento existe so porque ha cenarios de exemplo.
+    budget_status: str = "REQUIRES_USER_INPUT"
+
+    # NOT_AVAILABLE | AVAILABLE -- correcao pos-auditoria: prova social
+    # (depoimentos/avaliacoes/numero de clientes) so pode ser AVAILABLE se
+    # o Project Brain tiver um registro REAL disso (hoje nao ha nenhum campo
+    # assim em `ProjectBrain` -- por isso comeca e permanece NOT_AVAILABLE
+    # ate uma fase futura trazer essa fonte de dado).
+    social_proof_status: str = "NOT_AVAILABLE"
+
+    # --- honestidade (DADO / EVIDENCIA / HIPOTESE / DESCONHECIDO -- nunca inventar) ---
+    evidence_summary: list[str] = field(default_factory=list)
+    assumptions: list[str] = field(default_factory=list)
+    unknowns: list[str] = field(default_factory=list)
+    risks: list[str] = field(default_factory=list)
+    missing_information: list[str] = field(default_factory=list)  # lacunas objetivas quando NEEDS_INFORMATION
+    approval_required_actions: list[str] = field(default_factory=list)
+
+    generated_by: str | None = None
+
+    def esta_aprovado(self) -> bool:
+        """SOMENTE `status == "APPROVED"` retorna verdadeiro -- pedido
+        explicito da Fase 5, nunca confundir `READY_FOR_APPROVAL` com
+        aprovacao real."""
+        return self.status == "APPROVED"
+
+
 @dataclass
 class ProjectBrain:
     identidade: Identidade
@@ -371,6 +475,7 @@ class ProjectBrain:
     blueprint: ProductBlueprint | None = None
     business_plan: BusinessPlan | None = None
     production_plan: ProductionPlan | None = None
+    traffic_plan: TrafficPlan | None = None
     artifact_manifest: dict | None = None
     brand: Brand = field(default_factory=Brand)
     assets: Assets = field(default_factory=Assets)
@@ -389,6 +494,7 @@ class ProjectBrain:
         blueprint_dict = d.get("blueprint")
         business_plan_dict = d.get("business_plan")
         production_plan_dict = d.get("production_plan")
+        traffic_plan_dict = d.get("traffic_plan")
         return cls(
             identidade=Identidade(**d["identidade"]),
             origem=Origem(**d.get("origem", {})),
@@ -399,6 +505,7 @@ class ProjectBrain:
             blueprint=ProductBlueprint(**blueprint_dict) if blueprint_dict else None,
             business_plan=BusinessPlan(**business_plan_dict) if business_plan_dict else None,
             production_plan=ProductionPlan(**production_plan_dict) if production_plan_dict else None,
+            traffic_plan=TrafficPlan(**traffic_plan_dict) if traffic_plan_dict else None,
             artifact_manifest=d.get("artifact_manifest"),
             brand=Brand(**d.get("brand", {})),
             assets=Assets(**d.get("assets", {})),
@@ -424,6 +531,40 @@ class ProjectBrain:
             "status": status, "motivo": motivo, "timestamp": _agora(),
         })
         self.identidade.updated_at = _agora()
+
+    def coletar_evidencias_pesquisa(self) -> list[str]:
+        """
+        Fonte CANONICA de "quais evidencias de pesquisa este projeto tem"
+        (Fase 5 -- correcao de bug real). Antes disso existir, cada
+        consumidor calculava isso do seu proprio jeito:
+          - o Artifact Manifest ("01-Pesquisa") contava headline/copy/score/
+            caminho_decidido;
+          - o Paid Traffic Architect (`avaliar_prontidao`) so olhava
+            `oportunidade.evidence` (exclusivamente sinais cross-plataforma
+            do Opportunity Analyst -- TikTok/Instagram/YouTube/Trends).
+        Um projeto real pode ter headline/copy/score/nicho reais mas ZERO
+        sinal cross-plataforma confirmado (nenhuma fonte externa bateu) --
+        os dois metodos chegavam a respostas DIFERENTES pro MESMO projeto
+        (manifesto dizia "4 evidencias", Paid Traffic Architect dizia
+        "nenhuma evidencia"). Agora os dois usam ESTA MESMA lista.
+
+        NUNCA inventa dado -- so agrega o que ja existe em outros campos do
+        ProjectBrain (nao e uma segunda fonte de verdade, e uma VISAO
+        derivada).
+        """
+        itens: list[str] = []
+        if self.origem.source_headline:
+            itens.append(f"headline: {self.origem.source_headline}")
+        if self.origem.source_copy:
+            itens.append(f"copy: {self.origem.source_copy}")
+        if self.oportunidade.score is not None:
+            itens.append(f"score_scalaflow: {self.oportunidade.score}")
+        if self.mercado.niche:
+            itens.append(f"nicho: {self.mercado.niche}")
+        itens.extend(self.oportunidade.evidence)
+        if self.decisao.recommended_path:
+            itens.append(f"caminho_decidido: {self.decisao.recommended_path}")
+        return itens
 
 
 class ProjectBrainStore:

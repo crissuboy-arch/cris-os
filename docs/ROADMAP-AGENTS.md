@@ -16,9 +16,13 @@ Artifact Manifest + 1 artefato textual real, Fase 3 completada na Fase 4).
 Desde a Fase 2.5 esses agentes já têm **onde buscar raciocínio real** quando
 precisam (`llm/openrouter.py`, ver
 [CRIS-OS-ARCHITECTURE.md](CRIS-OS-ARCHITECTURE.md#roteamento-por-custo-fase-25)).
-Todo o resto (produção *completa* de ativos, publicação, tráfego pago) é só
-visão — nada além da fundação (Fase 3) e da organização de negócio/produção
-(Fase 4) foi implementado.
+O começo de **ANUNCIAR** também já existe (`Paid Traffic Architect`: plano
+de tráfego pago estruturado por canal, Fase 5) — sempre em modo
+planejamento, nunca executando campanha real. Todo o resto (produção
+*completa* de ativos, publicação, execução real de campanhas, medição de
+resultado real) é só visão — nada além da fundação (Fase 3), da organização
+de negócio/produção (Fase 4) e do planejamento de tráfego pago (Fase 5) foi
+implementado.
 
 ## Agentes futuros (documentação de intenção — NÃO implementar ainda)
 
@@ -34,7 +38,7 @@ visão — nada além da fundação (Fase 3) e da organização de negócio/prod
 | Video Agent | Produção de vídeo (`ProjectBrain.assets.videos`) | Visão |
 | Business Builder | Monta o negócio ao redor do produto | Visão |
 | Launch Architect | Plano de lançamento | Visão |
-| Paid Traffic Architect | Estrutura de campanhas (`ProjectBrain.trafego`) | Visão |
+| Paid Traffic Architect | Estrutura de campanhas (`ProjectBrain.traffic_plan`) | ✅ Implementado (Fase 5) — nunca executa campanha real |
 | Performance Agent | Lê resultados de campanha (`ProjectBrain.trafego.results`) | Visão |
 | Growth Intelligence | Otimização/escala | Visão |
 | Máquina de Leads | Geração de leads | Visão |

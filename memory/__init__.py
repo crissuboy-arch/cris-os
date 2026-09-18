@@ -21,6 +21,7 @@ from .project_brain import (  # noqa: F401
     ProductionPlan,
     ProjectBrain,
     ProjectBrainStore,
+    TrafficPlan,
     UserFocusStore,
 )
 from .skill_memory import FacadeSkillMemory  # noqa: F401

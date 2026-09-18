@@ -139,6 +139,25 @@ _PRODUCT_FACTORY_FRASES = (
     "mostre a estrutura atual do projeto", "estrutura atual do projeto",
 )
 
+# Paid Traffic Architect (Fase 5) e checado ANTES do product_architect (mesmo
+# motivo dos dois de cima: "monte uma estrategia de anuncios para este
+# PRODUTO" contem "produto") E ANTES do scalaflow_intel ("anúncios" esta em
+# `_SCALAFLOW_KEYWORDS` -- "estratégia de anúncios" nao pode virar uma
+# listagem de anuncios minerados). "trafego"/"tráfego" e unico o bastante
+# pra nao colidir com nada. Pedido explicito da Fase 5: "nao repetir o erro
+# da Fase 4 criando apenas listas frageis de palavras exatas" -- por isso
+# tambem ha uma checagem de co-ocorrencia ("plano" + nome de plataforma) em
+# `_eh_comando_paid_traffic`, cobrindo frases como "quero o plano de Meta,
+# Google e TikTok desse projeto" sem depender de uma frase fixa.
+_PAID_TRAFFIC_KEYWORDS = frozenset({"trafego", "tráfego"})
+_PAID_TRAFFIC_FRASES = (
+    "estrategia de anuncios", "estratégia de anúncios",
+    "como vamos anunciar", "plano de trafego", "plano de tráfego",
+    "plano de campanha", "campanha paga", "anuncios pagos", "anúncios pagos",
+    "trafego pago", "tráfego pago", "meta ads", "google ads", "tiktok ads",
+    "google display", "youtube ads",
+)
+
 
 def _model_name(llm: object) -> str:
     """Extrai o nome do modelo do provedor LLM."""
@@ -320,6 +339,16 @@ class AgentOrchestrator:
             )
             return self.agents["product_factory"]
 
+        # 2.4) Interceptacao deterministica do Paid Traffic Architect (Fase 5),
+        #      checada ANTES do product_architect ("produto") E ANTES do
+        #      scalaflow_intel ("anúncios" colide com _SCALAFLOW_KEYWORDS).
+        if "paid_traffic_architect" in self.agents and self._eh_comando_paid_traffic(texto):
+            logger.info(
+                "=== [ORCHESTRATOR] Interceptacao deterministica: 'paid_traffic_architect' "
+                "(sem passar pelo LLM/Ollama) ===",
+            )
+            return self.agents["paid_traffic_architect"]
+
         # 2.5) Interceptacao deterministica do Product Architect (Fase 3),
         #      checada ANTES do opportunity_analyst -- "pegue uma das minhas
         #      melhores oportunidades e me diga que produto criar" nao pode
@@ -417,6 +446,30 @@ class AgentOrchestrator:
         # as palavras pra nao capturar mensagens genericas sem relacao
         # nenhuma (ex.: "status da minha entrega dos Correios").
         if ("status" in texto_lower or "estrutura" in texto_lower) and "projeto" in texto_lower:
+            return True
+        return False
+
+    @staticmethod
+    def _eh_comando_paid_traffic(texto: str) -> bool:
+        """Detecta comandos do Paid Traffic Architect por palavra-chave/frase
+        (sem LLM). Ver comentario de `_PAID_TRAFFIC_KEYWORDS` sobre a
+        co-ocorrencia "plano" + plataforma (cobre "quero o plano de Meta,
+        Google e TikTok desse projeto" sem depender de frase fixa)."""
+        texto_lower = texto.lower()
+        palavras = set(texto_lower.split())
+        if palavras & _PAID_TRAFFIC_KEYWORDS:
+            return True
+        if any(kw in texto_lower for kw in _PAID_TRAFFIC_KEYWORDS):
+            return True
+        if any(f in texto_lower for f in _PAID_TRAFFIC_FRASES):
+            return True
+        # "meta" de proposito NAO entra aqui (colide com "meta" no sentido
+        # de objetivo/goal, ex.: "plano para bater minha meta de vendas") --
+        # Meta Ads especificamente so e reconhecido pela frase completa
+        # "meta ads" acima.
+        if "plano" in texto_lower and any(
+            p in texto_lower for p in ("tiktok", "google", "youtube")
+        ):
             return True
         return False
 
@@ -532,6 +585,7 @@ class AgentOrchestrator:
             (list(_PRODUCT_ARCHITECT_KEYWORDS), "product_architect"),
             (list(_BUSINESS_BUILDER_KEYWORDS), "business_builder"),
             (list(_PRODUCT_FACTORY_KEYWORDS), "product_factory"),
+            (list(_PAID_TRAFFIC_KEYWORDS), "paid_traffic_architect"),
             (["proposta", "orcamento", "pitch", "negociacao",
               "prospeccao", "comercial", "argumentario"], "vendas"),
             (["atendimento", "suporte", "reclamacao", "cancelamento",
@@ -612,6 +666,10 @@ class AgentOrchestrator:
             "produção": "product_factory",
             "factory": "product_factory",
             "fabrica": "product_factory",
+            "trafego": "paid_traffic_architect",
+            "tráfego": "paid_traffic_architect",
+            "traffic": "paid_traffic_architect",
+            "ads": "paid_traffic_architect",
         }
         n = nome.strip().lower().replace("-", "_")
         return aliases.get(n, n)

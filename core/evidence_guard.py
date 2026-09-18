@@ -40,6 +40,7 @@ import re
 _MARCADOR_FATO_INVENTADO = "[CLAIM REMOVIDA — não verificada para este produto ainda]"
 _MARCADOR_URGENCIA_GARANTIA = "[CLAIM DE URGÊNCIA/GARANTIA REMOVIDA — sem oferta aprovada real]"
 _MARCADOR_PROMESSA_RESULTADO = "[PROMESSA DE RESULTADO REMOVIDA — não verificável]"
+_MARCADOR_METRICA_TRAFEGO = "[MÉTRICA/RESULTADO DE TRÁFEGO REMOVIDA — sem campanha real rodando]"
 
 
 def _wrap_hipotese_funcionalidade(match: re.Match) -> str:
@@ -110,6 +111,35 @@ _PADROES_FUNCIONALIDADE_HIPOTETICA: tuple[re.Pattern, ...] = (
     re.compile(r"consultoria\s+one-?on-?one", re.IGNORECASE),
     re.compile(r"consultoria\s+individual", re.IGNORECASE),
     re.compile(r"mentoria\s+individual", re.IGNORECASE),
+    # Fase 5 (Paid Traffic Architect) -- generico, nao especifico de nenhum
+    # nicho: qualquer alegacao de JA TER acesso/parceria/rede com
+    # fornecedores e uma funcionalidade/relacao que normalmente nao existe
+    # antes do produto ser construido.
+    re.compile(r"acesso\s+a\s+fornecedor(es)?", re.IGNORECASE),
+    re.compile(r"parceria\s+com\s+fornecedor(es)?", re.IGNORECASE),
+    re.compile(r"rede\s+de\s+fornecedores?", re.IGNORECASE),
+)
+
+# ---------------------------------------------------------------------------
+# Categoria 5 (Fase 5 -- Paid Traffic Architect): METRICA/RESULTADO DE
+# TRAFEGO PAGO inventado. Antes de qualquer campanha rodar, NENHUM numero de
+# performance (CTR/CPC/CPM/CPA/ROAS/CVR) e verificavel -- e uma alegacao tao
+# grave quanto um "fato inventado" (categoria 1), so que especifica de
+# trafego pago. "Produto comprovado"/"oferta vencedora" tambem entram aqui:
+# sao vereditos de sucesso que nao existem antes de uma campanha real.
+# ---------------------------------------------------------------------------
+_PADROES_METRICA_TRAFEGO_INVENTADA: tuple[re.Pattern, ...] = (
+    re.compile(r"ctr\s+(ideal|esperado|previsto|estimado)?\s*(de)?\s*[\d.,]+\s*%", re.IGNORECASE),
+    re.compile(r"roas\s+(ideal|esperado|previsto|estimado)?\s*(de)?\s*[\d.,]+\s*x?", re.IGNORECASE),
+    re.compile(r"cpa\s+(ideal|esperado|previsto|estimado)?\s*(de)?\s*(r\$|us\$|\$)?\s*[\d.,]+", re.IGNORECASE),
+    re.compile(r"cpc\s+(ideal|esperado|previsto|estimado)?\s*(de)?\s*(r\$|us\$|\$)?\s*[\d.,]+", re.IGNORECASE),
+    re.compile(r"cpm\s+(ideal|esperado|previsto|estimado)?\s*(de)?\s*(r\$|us\$|\$)?\s*[\d.,]+", re.IGNORECASE),
+    re.compile(r"cvr\s+(ideal|esperado|previsto|estimado)?\s*(de)?\s*[\d.,]+\s*%", re.IGNORECASE),
+    re.compile(r"vai\s+converter", re.IGNORECASE),
+    re.compile(r"alta\s+demanda", re.IGNORECASE),
+    re.compile(r"produto\s+comprovado", re.IGNORECASE),
+    re.compile(r"oferta\s+vencedora", re.IGNORECASE),
+    re.compile(r"volume\s+de\s+pesquisa\s+(alto|de\s+[\d.,]+)", re.IGNORECASE),
 )
 
 # Prospectivas de risco (churn/escala/conversao) -- mantidas do round
@@ -129,10 +159,11 @@ MARCADORES_EXPLICITOS_DE_HIPOTESE = (
 
 def sanitizar_claims_herdadas(texto: str | None) -> str | None:
     """
-    Aplica as 4 categorias, nesta ordem: primeiro REESCREVE funcionalidades
+    Aplica as 5 categorias, nesta ordem: primeiro REESCREVE funcionalidades
     hipoteticas (preserva a ideia, marca como nao construida), depois REMOVE
-    fatos inventados, urgencia/garantia sem oferta real e promessas de
-    resultado. Nunca deixa passar silenciosamente.
+    fatos inventados, urgencia/garantia sem oferta real, promessas de
+    resultado e metricas/resultados de trafego pago inventados. Nunca deixa
+    passar silenciosamente.
     """
     if not texto:
         return texto
@@ -145,6 +176,8 @@ def sanitizar_claims_herdadas(texto: str | None) -> str | None:
         resultado = padrao.sub(_MARCADOR_URGENCIA_GARANTIA, resultado)
     for padrao in _PADROES_PROMESSA_RESULTADO:
         resultado = padrao.sub(_MARCADOR_PROMESSA_RESULTADO, resultado)
+    for padrao in _PADROES_METRICA_TRAFEGO_INVENTADA:
+        resultado = padrao.sub(_MARCADOR_METRICA_TRAFEGO, resultado)
     return resultado
 
 
@@ -156,5 +189,6 @@ def contem_claim_herdada(texto: str | None) -> bool:
     todos = (
         _PADROES_FATO_INVENTADO + _PADROES_URGENCIA_GARANTIA
         + _PADROES_PROMESSA_RESULTADO + _PADROES_FUNCIONALIDADE_HIPOTETICA
+        + _PADROES_METRICA_TRAFEGO_INVENTADA
     )
     return any(p.search(texto) for p in todos)

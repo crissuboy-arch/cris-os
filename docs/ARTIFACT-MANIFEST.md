@@ -33,7 +33,7 @@ SCALAFLOW/PRODUTOS/<project_id>/
 ├── 07-Videos/             (vazio -- geração de vídeo não habilitada nesta fase)
 ├── 08-Copy/               (brief textual real, quando já gerado)
 ├── 09-Funil/              (estrutura do funil — Business Builder)
-├── 10-Trafego-Pago/       (vazio -- fora de escopo até esta fase)
+├── 10-Trafego-Pago/       (status do TrafficPlan — Paid Traffic Architect, Fase 5)
 ├── 11-Resultados/         (vazio -- nenhuma campanha rodou ainda)
 └── MASTER-PROJECT.json    (resumo: project_id, tipo, status do blueprint/business plan/produção)
 ```
@@ -52,6 +52,7 @@ conteúdo.
     "status_blueprint": "...",        # brain.blueprint.decision_status
     "status_business_plan": "...",    # brain.business_plan.approval_status
     "status_producao": "...",         # brain.production_plan.status
+    "status_trafego_pago": "...",     # brain.traffic_plan.status (Fase 5, None se ainda não existe)
     "atualizado_em": "...",
 }
 ```
@@ -128,3 +129,11 @@ sem production plan preparado, continua bloqueado sem aprovação.
 somente o manifesto atual deste projeto...") e variações roteadas
 corretamente pro agente `product_factory`; conversas comuns não capturadas
 pela nova detecção.
+
+## Pasta `10-Trafego-Pago/` (Fase 5)
+
+Deriva de `brain.traffic_plan` (`core/paid_traffic_architect.py`, ver
+[PAID-TRAFFIC-ARCHITECT.md](PAID-TRAFFIC-ARCHITECT.md)): `EMPTY / NOT_STARTED`
+antes de qualquer plano existir, e o `status` real do `TrafficPlan`
+(`NEEDS_INFORMATION`/`READY_FOR_APPROVAL`/`APPROVED`) depois — mesmo
+princípio de sempre: derivado, nunca uma segunda fonte de verdade.
