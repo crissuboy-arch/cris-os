@@ -23,9 +23,13 @@ from __future__ import annotations
 import logging
 
 from config.settings import settings
-from core.product_architect import promover_proxima_alternativa, propor_produto
-from core.product_factory import ProductFactoryError, criar_plano_inicial
-from core.tool_registry import criar_registry_padrao
+from core.product_architect import (
+    promover_candidato_para_blueprint,
+    expandir_candidatos,
+    promover_proxima_alternativa,
+    propor_produto,
+)
+from core.product_factory import ProductFactoryError
 from memory.project_brain import ProjectBrain
 from tools.base import Tool
 from tools.opportunity_tools import (
@@ -34,6 +38,7 @@ from tools.opportunity_tools import (
     investigar_oportunidade,
     set_foco_atual,
 )
+from tools.product_factory_tools import preparar_plano_producao
 
 try:
     import truststore
@@ -68,9 +73,32 @@ _PALAVRAS_ALTERNATIVAS = frozenset({
 })
 _FRASES_ALTERNATIVAS = ("compare", "comparar")
 
-_PALAVRAS_PENDENTES = frozenset({"aguardando", "pendentes", "pendente"})
+# EXPANSAO de hipoteses (correcao pos-teste real, Fase 4): um pedido pra
+# EXPANDIR as hipoteses com formatos novos/diferentes (nunca so "mostrar o
+# que ja existe") precisa de deteccao PROPRIA, checada ANTES da checagem de
+# "alternativas" (view/cache) -- senao um pedido de expansao caia no mesmo
+# cache de "so mostrar hipoteses ja calculadas" e devolvia a lista antiga,
+# sem gerar nada novo (bug real: "proponha tambem alternativas mais
+# interativas... compare com as hipoteses atuais" devolveu a mesma lista
+# comecando de novo por ebook).
+#
+# Palavras de formato especifico (mini-app, ferramenta, etc.) tambem contam
+# como pedido de expansao: mencionar um formato que AINDA NAO esta entre os
+# candidatos calculados e um sinal claro de "quero que voce considere isso",
+# nao "so me mostre de novo o que ja calculou".
+_PALAVRAS_EXPANSAO = frozenset({
+    "mini-app", "miniapp", "mini_app", "ferramenta", "sistema",
+    "calculadora", "gerador", "quiz", "dashboard", "extensao", "extensão",
+    "agente", "micro-saas", "microsaas", "micro_saas",
+})
+_FRASES_EXPANSAO = (
+    "novas alternativas", "outras alternativas", "alternativas diferentes",
+    "mais interativ", "diferenciad", "alem dessas", "além dessas",
+    "compare com as hipoteses atuais", "compare com as hipóteses atuais",
+    "compare com as hipoteses", "compare com as hipóteses",
+)
 
-_registry = criar_registry_padrao()
+_PALAVRAS_PENDENTES = frozenset({"aguardando", "pendentes", "pendente"})
 
 
 def _headers_ok() -> bool:
@@ -104,7 +132,6 @@ def _tentar_criar_openrouter(tier: str, model: str):
 
 
 _llm_inteligente_cache = None
-_llm_economico_cache = None
 
 
 def _get_llm_inteligente():
@@ -118,22 +145,32 @@ def _get_llm_inteligente():
     return _llm_inteligente_cache
 
 
-def _get_llm_economico():
-    global _llm_economico_cache
-    if _llm_economico_cache is None:
-        from llm.openrouter import MODELO_PADRAO_ECONOMICO
-
-        _llm_economico_cache = _tentar_criar_openrouter(
-            "economico", settings.OPENROUTER_MODEL_ECONOMICO or MODELO_PADRAO_ECONOMICO,
-        )
-    return _llm_economico_cache
-
-
 def _contains_any(texto: str, palavras: frozenset[str], frases: tuple = ()) -> bool:
     tokens = set(texto.split())
     if tokens & palavras:
         return True
     return any(f in texto for f in frases)
+
+
+def _eh_pedido_expansao(texto: str, tipos_ja_existentes: set[str]) -> bool:
+    """
+    Detecta um pedido de EXPANDIR hipoteses (formatos novos/diferentes +
+    comparacao) -- distinto de um pedido de so VER as hipoteses ja
+    calculadas. Ver comentario de `_PALAVRAS_EXPANSAO` sobre o bug real que
+    isso corrige.
+    """
+    if any(f in texto for f in _FRASES_EXPANSAO):
+        return True
+    # Mencionar um formato especifico que NAO esta entre os candidatos
+    # ja calculados e um pedido implicito de considerar esse formato --
+    # nao adianta so reexibir o que ja existe.
+    tokens = set(texto.split())
+    for palavra in _PALAVRAS_EXPANSAO:
+        if palavra in tokens or palavra in texto:
+            tipo_normalizado = palavra.replace("-", "_")
+            if tipo_normalizado not in tipos_ja_existentes:
+                return True
+    return False
 
 
 def _resolver_projeto_para_propor(entrada: str, session: str) -> ProjectBrain | str:
@@ -234,20 +271,26 @@ def _formatar_hipoteses(brain: ProjectBrain, bp) -> str:
     ]
     for i, c in enumerate(bp.candidates, start=1):
         linhas.append(f"{i}. {c['product_type'].upper()} — confiança: {c.get('confidence') or '?'}")
+        if c.get("inference_note"):
+            linhas.append(f"   ⚠️ {c['inference_note']}")
         if c.get("audience_hypothesis"):
             linhas.append(f"   Público (hipótese): {c['audience_hypothesis']}")
         if c.get("problem"):
             linhas.append(f"   Problema: {c['problem']}")
         if c.get("why_it_fits"):
             linhas.append(f"   Por que pode fazer sentido: {c['why_it_fits']}")
+        if c.get("functional_proposal"):
+            linhas.append(f"   Proposta funcional: {c['functional_proposal']}")
         if c.get("production_difficulty"):
             linhas.append(f"   Dificuldade de produção: {c['production_difficulty']}")
         if c.get("estimated_speed_to_mvp"):
-            linhas.append(f"   Velocidade estimada até o MVP: {c['estimated_speed_to_mvp']}")
+            linhas.append(f"   Velocidade estimada até o MVP (estimativa, não fato): {c['estimated_speed_to_mvp']}")
         if c.get("monetization"):
             linhas.append(f"   Monetização possível: {', '.join(c['monetization'])}")
         if c.get("supporting_evidence"):
             linhas.append(f"   Evidências a favor: {'; '.join(c['supporting_evidence'])}")
+        if c.get("risks"):
+            linhas.append(f"   Riscos: {'; '.join(c['risks'])}")
         if c.get("missing_evidence"):
             linhas.append(f"   Evidências ainda ausentes: {'; '.join(c['missing_evidence'])}")
         linhas.append("")
@@ -303,6 +346,14 @@ def gerenciar_produto(entrada: str, session: str = "") -> str:
             return _rejeitar(brain_focado, texto)
         if _contains_any(texto, _PALAVRAS_EXPLICAR, _FRASES_EXPLICAR):
             return _formatar_proposta(brain_focado)
+        # EXPANSAO (Fase 4): checada ANTES do "ver alternativas ja
+        # calculadas" -- um pedido de EXPANDIR (formatos novos/diferentes +
+        # comparacao) nunca pode ser respondido com o cache de "so mostrar o
+        # que ja existe" (bug real corrigido: ver `_PALAVRAS_EXPANSAO`).
+        if brain_focado.blueprint.candidates and _eh_pedido_expansao(
+            texto, {c["product_type"] for c in brain_focado.blueprint.candidates},
+        ):
+            return _expandir(brain_focado, entrada)
         if _contains_any(texto, _PALAVRAS_ALTERNATIVAS, _FRASES_ALTERNATIVAS):
             if brain_focado.blueprint.candidates:
                 # ja temos candidatos calculados -- reexibe SEM gastar de
@@ -357,13 +408,20 @@ def _aprovar(brain: ProjectBrain, texto: str) -> str:
         outras = [c["product_type"] for c in bp.candidates if c["product_type"] != candidato_citado]
         bp.recommended_product_type = candidato_citado
         bp.alternative_product_types = outras
+        # Promove os campos ricos do candidato citado pro blueprint -- sem
+        # isso, aprovar por nome (modo hipoteses) nunca preenchia
+        # product_concept/target_audience/etc., e o artefato/plano de
+        # negocio saiam genericos mesmo com uma analise especifica ja feita
+        # (bug real, Fase 4).
+        candidato_dict = next(c for c in bp.candidates if c["product_type"] == candidato_citado)
+        promover_candidato_para_blueprint(bp, candidato_dict)
 
     bp.decision_status = "APPROVED"
     brain.registrar_aprovacao("APPROVED")
     store.save(brain)
 
     try:
-        plano = criar_plano_inicial(brain, _registry, llm_economico=_get_llm_economico())
+        plano = preparar_plano_producao(brain)
     except ProductFactoryError as exc:
         return f"Aprovação registrada, mas a Product Factory recusou: {exc}"
 
@@ -378,12 +436,18 @@ def _aprovar(brain: ProjectBrain, texto: str) -> str:
         "Passos previstos:",
     ]
     for passo in plano.passos:
-        marcador = {"concluido": "✔", "pendente": "…", "indisponivel": "✗"}[passo.status]
+        marcador = {"concluido": "✔", "planejado": "📋", "pendente": "…", "indisponivel": "✗"}[passo.status]
         linhas.append(f"{marcador} {passo.nome} ({passo.status})")
-    if plano.artefatos_gerados:
+    concluidos = [p.resultado for p in plano.passos if p.status == "concluido" and p.resultado]
+    if concluidos:
         linhas.append("")
-        linhas.append("Primeiro artefato gerado:")
-        linhas.append(plano.artefatos_gerados[0])
+        linhas.append("Artefato gerado:")
+        linhas.append(concluidos[0])
+    planejados = [p.resultado for p in plano.passos if p.status == "planejado" and p.resultado]
+    if planejados:
+        linhas.append("")
+        linhas.append("Especificação planejada (NOT_CONNECTED = sem execução automática, não sem planejamento):")
+        linhas.append(planejados[0])
     linhas.append("")
     linhas.append(f"Projeto: {brain.project_id} | Status: {bp.decision_status}")
     return "\n".join(linhas)
@@ -402,6 +466,26 @@ def _rejeitar(brain: ProjectBrain, motivo_texto: str) -> str:
             "analisadas para essa oportunidade -- preciso investigar de novo para "
             f"propor algo novo.\n\nProjeto: {brain.project_id}"
         )
+    return _formatar_proposta(brain)
+
+
+def _expandir(brain: ProjectBrain, pedido_original: str) -> str:
+    """
+    Expande as hipoteses ja existentes com formatos NOVOS/diferentes e
+    compara com as ja calculadas -- SEMPRE chama o LLM de novo (esta e uma
+    intencao diferente de "so mostrar o que ja existe", entao o cache de
+    `_PALAVRAS_ALTERNATIVAS` nao se aplica aqui). Nunca apaga hipoteses
+    anteriores, nunca aprova nada automaticamente.
+    """
+    store = get_project_brain_store()
+    llm = _get_llm_inteligente()
+    blueprint = expandir_candidatos(brain, pedido_original, llm=llm)
+    brain.blueprint = blueprint
+    brain.registrar_run(
+        "product_architect",
+        f"Expandiu hipoteses de produto ({len(blueprint.candidates)} candidato(s) no total)",
+    )
+    store.save(brain)
     return _formatar_proposta(brain)
 
 
@@ -429,6 +513,15 @@ def get_tools() -> list[Tool]:
                 "pode criar", "pode seguir", "pode produzir", "pode comecar",
                 "pode começar", "bora criar", "nao gostei", "não gostei",
                 "quero outra", "outra alternativa", "por que",
+                # Expansao de hipoteses (Fase 4) -- superset das frases/
+                # palavras de `_PALAVRAS_EXPANSAO`/`_FRASES_EXPANSAO`.
+                "mini-app", "miniapp", "ferramenta", "sistema", "calculadora",
+                "gerador", "quiz", "dashboard", "extensao", "extensão",
+                "agente", "micro-saas", "microsaas",
+                "novas alternativas", "outras alternativas",
+                "alternativas diferentes", "mais interativ", "diferenciad",
+                "alem dessas", "além dessas", "compare com as hipoteses",
+                "compare com as hipóteses",
             ],
             gerenciar_produto,
             # Reconhece um link/ID da Meta Ads Library em qualquer mensagem

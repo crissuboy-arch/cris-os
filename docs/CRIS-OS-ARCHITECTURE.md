@@ -1,14 +1,19 @@
-# CRIS OS — Arquitetura (Fase 2 + Fase 2.5 + Fase 3)
+# CRIS OS — Arquitetura (Fase 2 + Fase 2.5 + Fase 3 + Fase 4)
 
 > Visão de arquitetura da camada inteligente construída na Fase 2 (Project
 > Brain + Opportunity Analyst + Decision Engine), do provedor de IA remota
-> da Fase 2.5 (OpenRouter), e do Product Architect + Product Factory
-> (fundação) da Fase 3, em cima do Marco 1
+> da Fase 2.5 (OpenRouter), do Product Architect + Product Factory
+> (fundação) da Fase 3, e do Business Builder + Product Factory completada
+> (plano de produção por tipo + Artifact Manifest) da Fase 4, em cima do
+> Marco 1
 > ([docs/MARCO-01-TELEGRAM-SCALAFLOW.md](MARCO-01-TELEGRAM-SCALAFLOW.md)).
 > Docs específicos da Fase 3: [PRODUCT-ARCHITECT.md](PRODUCT-ARCHITECT.md),
 > [PRODUCT-BLUEPRINT.md](PRODUCT-BLUEPRINT.md),
 > [PRODUCT-FACTORY.md](PRODUCT-FACTORY.md),
-> [TOOL-REGISTRY.md](TOOL-REGISTRY.md).
+> [TOOL-REGISTRY.md](TOOL-REGISTRY.md). Docs específicos da Fase 4:
+> [BUSINESS-BUILDER.md](BUSINESS-BUILDER.md),
+> [PRODUCTION-PLAN.md](PRODUCTION-PLAN.md),
+> [ARTIFACT-MANIFEST.md](ARTIFACT-MANIFEST.md).
 
 ## Princípio central
 
@@ -48,6 +53,11 @@ automação, ou por outro canal, sem mudar uma linha de `agents/` ou `tools/`.
 | Tool Registry (capabilities de produção) | `core/tool_registry.py` | Fase 3 |
 | Foco por usuário/chat (persistente) | `memory/project_brain.py:UserFocusStore` | Fase 3 |
 | Divisão de mensagens >4000 chars no Telegram | `channels/telegram/bot.py:_dividir_mensagem` | Fase 3 |
+| Agente Business Builder (produto aprovado → negócio) | `agents/business_builder.py` + `tools/business_builder_tools.py` | Fase 4 |
+| Lógica do Business Builder (LLM tier econômico + fallback) | `core/business_builder.py` | Fase 4 |
+| Agente Product Factory (expõe plano de produção sob demanda) | `agents/product_factory.py` + `tools/product_factory_tools.py` | Fase 4 |
+| Plano de produção específico por tipo + persistência | `core/product_factory.py` (`_passos_para_tipo`, `persistir_plano`) | Fase 4 |
+| Artifact Manifest (estrutura lógica, derivada, sem Drive) | `core/artifact_manifest.py` | Fase 4 |
 
 ## Fluxo completo (Fase 2)
 
@@ -105,6 +115,51 @@ está em foco" não é mais uma variável Python — é persistido via
 restart do processo **e** a reboot do computador (testado com ambos), e é
 isolado por sessão (nunca um único "foco atual" global compartilhado). Ver
 detalhes em [PRODUCT-ARCHITECT.md](PRODUCT-ARCHITECT.md#persistência-por-usuáriochat).
+
+## Fluxo completo (Fase 4 — Business Builder + Product Factory)
+
+```
+... (Product Architect + aprovação humana do PRODUTO, como acima) ...
+  → agents/business_builder.py (SpecialistAgent)
+  → tools/business_builder_tools.py:gerenciar_negocio(entrada, session)
+       a. resolve o MESMO projeto em foco (reaproveita get_foco_atual --
+          nenhum "projeto atual" novo)
+       b. GATE: bloqueia se blueprint.decision_status != "APPROVED"
+          ("Esse produto ainda não foi aprovado [...]")
+       c. core/business_builder.py:construir_plano_negocio() -- OpenRouter
+          tier ECONOMICO (nao o INTELIGENTE do Product Architect -- tarefa
+          mais simples) gera o BusinessPlan inteiro numa unica chamada
+       d. persiste no MESMO ProjectBrain (`business_plan`)
+  → resposta (plano de negocio, com preco sempre marcado como hipotese
+    quando sem benchmark real)
+
+  → agents/product_factory.py (SpecialistAgent) -- sob demanda, ou
+    automaticamente logo apos a aprovacao do PRODUTO (mesmo helper)
+  → tools/product_factory_tools.py:gerenciar_producao(entrada, session)
+       a. mesmo GATE (blueprint APPROVED)
+       b. core/product_factory.py:criar_plano_inicial() -- passos
+          ESPECIFICOS por `product_type` (mini-app/ebook/afiliado/comercio
+          tem listas diferentes -- nunca presume ebook)
+       c. persistir_plano() -- guarda em `ProjectBrain.production_plan`
+       d. core/artifact_manifest.py:gerar_manifest() -- guarda em
+          `ProjectBrain.artifact_manifest` (derivado, nao e 2a fonte de verdade)
+  → resposta (plano de produção + artefato textual real, se ainda não gerado)
+  → NENHUMA publicação/compra/gasto/deploy acontece aqui -- fora de escopo
+    ate uma fase futura com aprovação humana explicita separada
+```
+
+**Cost-first no Business Builder**: diferente do Product Architect (tier
+INTELIGENTE, precisa escolher entre 22+ formatos), o Business Builder usa o
+tier ECONÔMICO -- estruturar uma oferta em cima de um formato **já
+aprovado** é uma tarefa mais simples. Ver
+[BUSINESS-BUILDER.md](BUSINESS-BUILDER.md#por-que-usa-o-tier-econômico-não-o-inteligente).
+
+**Sem duplicação da Product Factory**: `core/product_factory.py` continua
+sendo a única lógica de decisão de passos/execução desde a Fase 3. A Fase 4
+só trocou a lista fixa de passos por uma lista específica por tipo
+(`_passos_para_tipo`) e adicionou persistência real (antes só existia na
+resposta do Telegram) -- ver
+[PRODUCTION-PLAN.md](PRODUCTION-PLAN.md#o-que-mudou-desde-a-fase-3).
 
 ## Roteamento por custo (Fase 2.5)
 
@@ -243,10 +298,51 @@ Limitações específicas da Fase 3 (Product Architect/Factory) estão em
   autenticação multiusuário completa.
 - Paráfrases não previstas de "quais alternativas" podem disparar uma nova
   chamada ao LLM em vez de reaproveitar candidatos já calculados.
-- 8 de 9 capabilities do Tool Registry seguem indisponíveis de propósito
-  (fundação, não construção) — `MINI_APP_BUILDER` em especial aguarda uma
-  interface/API do criador de mini-apps que a Cris já tem, ainda não
-  integrada.
+- A maioria das capabilities do Tool Registry seguem indisponíveis de
+  propósito (fundação, não construção) — `MINI_APP_BUILDER` em especial
+  aguarda uma interface/API do criador de mini-apps que a Cris já tem, ainda
+  não integrada (marcado `AVAILABLE_MANUAL` desde a Fase 4).
+
+Limitações específicas da Fase 4 (Business Builder/Production Plan/Artifact
+Manifest) estão em
+[BUSINESS-BUILDER.md](BUSINESS-BUILDER.md#limitações-conhecidas) e
+[PRODUCTION-PLAN.md](PRODUCTION-PLAN.md). Resumo:
+
+- Sem dado de tráfego pago real, todo o plano de negócio (funil, conteúdo,
+  lançamento) é planejamento, não validação de mercado.
+- `SALES_PAGE_PLANNER`/`FUNNEL_PLANNER`/`EMAIL_SEQUENCE_PLANNER`/
+  `CONTENT_PLANNER`/`LAUNCH_PLANNER` existem hoje como campos calculados
+  numa única chamada do Business Builder, não como capabilities executáveis
+  separadamente no Tool Registry.
+- O Artifact Manifest é só a estrutura lógica — não há sincronização real
+  com Google Drive ou qualquer outro storage nesta fase.
+- Produção completa dos ativos (imagem, vídeo, mini-app funcional, landing
+  page publicada) continua fora de escopo — só o brief textual (e, para
+  tipos técnicos, a especificação planejada) é gerado de verdade.
+- O Evidence Guard (`core/evidence_guard.py`) é baseado em padrões
+  conhecidos (regex/categorias), não em compreensão semântica plena.
+
+**Correções pós-teste real (5 rounds de teste via Telegram, resumo)**:
+1. Expansão de hipóteses tinha cache incorreto — corrigido com detecção de
+   intenção dedicada (`_eh_pedido_expansao`), sempre reconsulta o LLM.
+2. Aprovação não era reconhecida pelo Business Builder/Product Factory logo
+   após aprovar — corrigido com `ProductBlueprint.esta_aprovado()` (aceita
+   `APPROVED`/`IN_PRODUCTION`/`COMPLETED`, nunca só `== "APPROVED"`).
+3. Artefatos genéricos (campos do candidato vencedor nunca promovidos pro
+   blueprint) — corrigido com `promover_candidato_para_blueprint`.
+4. Evidência do concorrente herdada como fato do produto novo — corrigido
+   com `core/evidence_guard.py` (4 categorias: fato inventado removido,
+   urgência/garantia sem oferta real removida, promessa de resultado
+   removida, funcionalidade não construída reescrita como hipótese).
+5. Manifesto servia snapshot congelado (Business Plan não sincronizado) e
+   caía no assistente genérico por falta de roteamento determinístico —
+   corrigido com `get_current_project_manifest` (leitura pura, zero LLM,
+   zero escrita) e adição de "manifesto"/"status do projeto" às
+   interceptações do `AgentOrchestrator`.
+
+Ver [PRODUCT-ARCHITECT.md](PRODUCT-ARCHITECT.md), [BUSINESS-BUILDER.md](BUSINESS-BUILDER.md)
+e [ARTIFACT-MANIFEST.md](ARTIFACT-MANIFEST.md) para o detalhamento completo
+de cada correção.
 
 ## Como restaurar / adicionar novas Skills
 

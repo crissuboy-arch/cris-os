@@ -315,9 +315,12 @@ def test_factory_aceita_blueprint_approved_e_gera_um_artefato(brain_store):
     assert len(plano.artefatos_gerados) >= 1
     passos_copy = [p for p in plano.passos if p.capability == COPY_GENERATOR]
     assert passos_copy and passos_copy[0].status == "concluido"
-    # capabilities sem fornecedor ficam "indisponivel", nunca "concluido" as cegas
+    # capabilities sem fornecedor NUNCA ficam "concluido" as cegas -- mas
+    # MINI_APP_BUILDER e PLANNABLE (Fase 4: NOT_CONNECTED bloqueia so a
+    # EXECUCAO automatica, nao o planejamento/especificacao via LLM).
     passos_mini_app = [p for p in plano.passos if p.capability == MINI_APP_BUILDER]
-    assert passos_mini_app and passos_mini_app[0].status == "indisponivel"
+    assert passos_mini_app and passos_mini_app[0].status == "planejado"
+    assert passos_mini_app[0].resultado  # especificacao real foi escrita, nunca vazia
 
 
 def test_gerar_copy_simples_sem_llm_usa_template_sem_inventar():
@@ -540,9 +543,10 @@ def test_aprovar_sem_recomendacao_unica_exige_nomear_candidato(brain_store, monk
 
 def test_aprovar_nomeando_candidato_funciona_mesmo_sem_recomendacao_unica(brain_store, monkeypatch):
     import tools.product_architect_tools as pat
+    import tools.product_factory_tools as pft
 
     monkeypatch.setattr(pat, "get_project_brain_store", lambda: brain_store)
-    monkeypatch.setattr(pat, "_get_llm_economico", lambda: None)
+    monkeypatch.setattr(pft, "_get_llm_economico", lambda: None)
 
     brain = _oportunidade_investigada(brain_store)
     brain.blueprint = propor_produto(brain, llm=FakeLLMJSON(_PAYLOAD_EXPLORATORIO))

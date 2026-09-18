@@ -26,23 +26,37 @@ Nenhuma tabela nova. Nenhuma migration. Nenhuma mudança em
 
 ```python
 ProjectBrain
-├── identidade   (project_id, name, type, status, created_at, updated_at)
-├── origem       (source_offer_id, source_platform, source_url, source_country, source_language)
-├── mercado      (niche, market, target_country, target_language, target_audience)
-├── oportunidade (score, signals, evidence, risks, competition, trend_signals)
-├── decisao      (recommended_path, reasoning_summary, evidence_level, decision_status, user_approved)
-├── produto      (product_type, product_name, positioning, offer, price, business_model)
-├── brand        (brand_name, slogan, colors, fonts, visual_direction)
-├── assets       (landing_page, creatives, videos, documents, drive_folder)
-├── trafego      (channels, campaigns, budgets, results)
-└── historico    (decisions, approvals, agent_runs)
+├── identidade       (project_id, name, type, status, created_at, updated_at)
+├── origem           (source_offer_id, source_platform, source_url, source_country, source_language, source_headline, source_copy)
+├── mercado          (niche, market, target_country, target_language, target_audience)
+├── oportunidade     (score, signals, evidence, risks, competition, trend_signals)
+├── decisao          (recommended_path, reasoning_summary, evidence_level, decision_status, user_approved)
+├── produto          (product_type, product_name, positioning, offer, price, business_model)
+├── blueprint        (ProductBlueprint | None -- Fase 3, ver PRODUCT-BLUEPRINT.md)
+├── business_plan    (BusinessPlan | None -- Fase 4, ver BUSINESS-BUILDER.md)
+├── production_plan  (ProductionPlan | None -- Fase 4, ver PRODUCTION-PLAN.md)
+├── artifact_manifest (dict | None -- Fase 4, DERIVADO, ver ARTIFACT-MANIFEST.md)
+├── brand            (brand_name, slogan, colors, fonts, visual_direction)
+├── assets           (landing_page, creatives, videos, documents, drive_folder)
+├── trafego          (channels, campaigns, budgets, results)
+└── historico        (decisions, approvals, agent_runs)
 ```
 
 Cada seção é um `@dataclass` em `memory/project_brain.py`. Muitos campos
-ficam `None`/vazios até uma fase futura preenchê-los (produto, brand, assets
-e tráfego ainda não são tocados por nenhum agente nesta fase — só
-`identidade`, `origem`, `mercado`, `oportunidade` e `decisao` são
-preenchidos pelo Opportunity Analyst hoje).
+ficam `None`/vazios até uma fase futura preenchê-los (`brand`, `assets` e
+`trafego` ainda não são tocados por nenhum agente até a Fase 4 -- só
+`identidade`, `origem`, `mercado`, `oportunidade`, `decisao`, `blueprint`,
+`business_plan`, `production_plan` e `artifact_manifest` são preenchidos
+pelos agentes existentes hoje).
+
+**Continuidade real entre agentes (Fase 4)**: todos os agentes da Fase 4
+(Business Builder, Product Factory) operam sobre o **MESMO** `project_id` já
+criado pelo Opportunity Analyst -- nenhum agente cria um projeto novo pra si
+mesmo. `business_plan`/`production_plan`/`artifact_manifest` são só mais
+seções do mesmo `ProjectBrain`, salvas com o mesmo `ProjectBrainStore.save()`
+de sempre (nenhuma migration, nenhum schema novo no SQLite -- o `content` já
+era um JSON opaco, então novos campos no dataclass Python não exigem
+nenhuma mudança em `storage/sqlite_memory.py`).
 
 ## API
 

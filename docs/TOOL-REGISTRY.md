@@ -19,19 +19,65 @@ outra coisa, sem mudar o código da Factory.
 registry.executar(COPY_GENERATOR, blueprint=blueprint, llm=llm_economico)
 ```
 
-## Capabilities registradas nesta fase
+## Status legível por capability (Fase 4)
 
-| Capability | Disponível? | Fornecedor | Observação |
-|---|---|---|---|
-| `COPY_GENERATOR` | **Sim** | OpenRouter (tier econômico) | Único executor real desta fase — prova o contrato ponta a ponta |
-| `MINI_APP_BUILDER` | Não | — | A Cris já tem um criador próprio (prompt → mini-app); falta interface/API definida |
-| `IMAGE_GENERATOR` | Não | — | Assets caros não gerados automaticamente nesta fase |
-| `VIDEO_GENERATOR` | Não | — | Idem |
-| `LANDING_PAGE_BUILDER` | Não | — | Fundação apenas |
-| `CODE_GENERATOR` | Não | — | Fundação apenas |
-| `DRIVE_STORAGE` | Não | — | Fundação apenas |
-| `GITHUB` | Não | — | Fundação apenas |
-| `VERCEL` | Não | — | Fundação apenas |
+Além do booleano `disponivel` (o que o código usa pra decidir se executa),
+cada `ToolEntry` agora também tem um `status` legível — `AVAILABLE`,
+`AVAILABLE_MANUAL` (existe, mas só de forma manual/fora do CRIS OS) ou
+`NOT_CONNECTED`. Não substitui `disponivel`; é só uma etiqueta mais rica pra
+exibir/documentar.
+
+## PLANNABLE vs NOT_CONNECTED (correção pós-teste real)
+
+`NOT_CONNECTED` significa "não posso EXECUTAR/CONSTRUIR automaticamente com
+uma ferramenta externa" — **nunca** "não posso PLANEJAR ou ESCREVER a
+especificação". Cada `ToolEntry` tem um campo `plannable: bool`: quando
+`True` (mesmo com `disponivel=False`), a Product Factory ainda gera uma
+especificação/brief real via LLM para essa capability (ver
+[PRODUCTION-PLAN.md](PRODUCTION-PLAN.md#plannable-vs-not_connected-correção-pós-teste-real)).
+Bug real corrigido: antes disso existir, um `mini_app` aprovado só recebia
+um brief textual genérico, mesmo sem builder conectado — a Cris já podia
+planejar a especificação técnica internamente, só não estava fazendo isso.
+
+## Capabilities de PRODUÇÃO de ativos
+
+| Capability | Status | Plannable? | Fornecedor | Observação |
+|---|---|---|---|---|
+| `COPY_GENERATOR` | **AVAILABLE** | — | OpenRouter (tier econômico) | Único executor real — prova o contrato ponta a ponta |
+| `MINI_APP_BUILDER` | **AVAILABLE_MANUAL** | **Sim** | ferramenta manual da Cris | A Cris já tem um criador próprio (prompt → mini-app); a Product Factory não pode executá-la sozinha, mas PLANEJA (especificação/prompt de build) via LLM |
+| `IMAGE_GENERATOR` | NOT_CONNECTED | **Sim** | — | Geração de imagem em si não acontece; direção/brief de branding (texto) é plannable |
+| `VIDEO_GENERATOR` | NOT_CONNECTED | Não | — | Assets caros não gerados nem planejados em detalhe nesta fase |
+| `LANDING_PAGE_BUILDER` | NOT_CONNECTED | **Sim** | — | Deploy não acontece; copy/estrutura da landing é plannable |
+| `CODE_GENERATOR` | NOT_CONNECTED | **Sim** | — | Execução não acontece; especificação técnica é plannable |
+| `DRIVE_STORAGE` | NOT_CONNECTED | Não | — | Fundação apenas |
+| `GITHUB` | NOT_CONNECTED | **Sim** | — | Deploy/push não acontece; índice de documentação é plannable |
+| `VERCEL` | NOT_CONNECTED | Não | — | Fundação apenas |
+
+## Capabilities de PLANEJAMENTO comercial (Fase 4)
+
+| Capability | Status | Observação |
+|---|---|---|
+| `SALES_PAGE_PLANNER` | NOT_CONNECTED | Gerado hoje INLINE dentro do Business Plan único (`core/business_builder.py`), não como execução separada |
+| `FUNNEL_PLANNER` | NOT_CONNECTED | Idem |
+| `EMAIL_SEQUENCE_PLANNER` | NOT_CONNECTED | Idem |
+| `CONTENT_PLANNER` | NOT_CONNECTED | Idem |
+| `LAUNCH_PLANNER` | NOT_CONNECTED | Idem |
+
+Essas 5 capabilities existem hoje como **campos** do `BusinessPlan`
+(`sales_page_structure`, `funnel_structure`, `email_sequence`,
+`content_strategy`, `launch_strategy`), calculados numa única chamada de LLM
+— reservadas aqui só pra documentar a intenção de uma fase futura separar
+isso em execuções independentes.
+
+## Por que `BUSINESS_BUILDER` e `PRODUCT_FACTORY` NÃO estão registrados aqui
+
+Este registry cataloga capabilities de **produção de ativos**, não os
+próprios agentes/fases que o consomem. `business_builder` e
+`product_factory` são agentes completos (`agents/business_builder.py`,
+`agents/product_factory.py`), invocados diretamente pelo orchestrator — nunca
+através de `registry.executar(...)`. Registrá-los aqui seria uma capability
+"de mentirinha" (nunca executada por este mecanismo) — "nada de capability
+falsa" é uma regra explícita desde a Fase 4.
 
 ## Nunca crasha a Product Factory
 

@@ -141,6 +141,17 @@ BLUEPRINT_ESTADOS_VALIDOS = frozenset({
     "NEEDS_RESEARCH", "IN_PRODUCTION", "COMPLETED",
 })
 
+# Estados que significam "a aprovacao humana JA aconteceu" (Fase 4 --
+# correcao de bug real: a Product Factory avanca `decision_status` de
+# "APPROVED" para "IN_PRODUCTION" IMEDIATAMENTE apos a aprovacao, no mesmo
+# fluxo. Qualquer consumidor posterior -- Business Builder, Product Factory
+# sob demanda -- que checasse so `== "APPROVED"` via um espelho proprio via
+# um "ja passou por aprovacao" real, sempre um `False` incorreto pra
+# projetos ja aprovados). Esta e a UNICA fonte de verdade sobre aprovacao --
+# nenhum campo novo foi criado; so os estados que ja existiam desde a Fase 3
+# foram agrupados corretamente.
+BLUEPRINT_ESTADOS_APROVADOS = frozenset({"APPROVED", "IN_PRODUCTION", "COMPLETED"})
+
 
 @dataclass
 class ProductBlueprint:
@@ -218,6 +229,136 @@ class ProductBlueprint:
     # --- rastreabilidade da geracao (nao e segredo, e metadado de custo) ---
     generated_by: str | None = None  # "openrouter:inteligente" | "fallback_deterministico" | ...
 
+    def esta_aprovado(self) -> bool:
+        """True se a aprovacao humana JA aconteceu -- inclui `APPROVED` e
+        qualquer estado posterior (`IN_PRODUCTION`, `COMPLETED`). Use isto
+        (nunca `decision_status == "APPROVED"` direto) em qualquer gate que
+        precise saber "este produto ja foi aprovado", pois `decision_status`
+        avanca para `IN_PRODUCTION` assim que a Product Factory roda o
+        primeiro artefato -- checar so `== "APPROVED"` bloqueia
+        incorretamente qualquer consumidor (Business Builder, Product
+        Factory sob demanda) que rode DEPOIS desse avanco (bug real,
+        Fase 4)."""
+        return self.decision_status in BLUEPRINT_ESTADOS_APROVADOS
+
+
+# Estados validos do Business Plan (Fase 4). Diferente do Product Blueprint,
+# nao existe hoje uma acao concreta que dependa de "BusinessPlan aprovado"
+# (nada e publicado/comprado nesta fase) -- por isso a criacao normal termina
+# em READY_FOR_APPROVAL (plano pronto pra revisao humana), nao em
+# PENDING_APPROVAL/APPROVED como o blueprint. Os estados existem desde ja
+# para quando uma fase futura precisar deles (ex.: liberar producao paga).
+BUSINESS_PLAN_ESTADOS_VALIDOS = frozenset({
+    "DRAFT", "READY_FOR_APPROVAL", "APPROVED", "REJECTED",
+})
+
+
+@dataclass
+class BusinessPlan:
+    """
+    Plano de negocio (Fase 4 -- Business Builder). Recebe um Product Blueprint
+    JA APROVADO e organiza a estrutura comercial em torno dele: modelo de
+    negocio, oferta, monetizacao, funil, conteudo, lancamento.
+
+    Regra de ouro (igual ao Product Blueprint): NUNCA inventa vendas, receita,
+    CPA, ROAS, conversao, demanda ou tamanho de mercado. Preco sem benchmark
+    real fica marcado `price_is_hypothesis=True` -- nunca vira um numero
+    apresentado como fato.
+    """
+
+    project_id: str = ""
+    created_at: str = field(default_factory=_agora)
+    updated_at: str = field(default_factory=_agora)
+
+    # --- modelo/oferta ---
+    business_model: str | None = None
+    value_proposition: str | None = None
+    target_audience: str | None = None
+    problem: str | None = None
+    solution: str | None = None
+    positioning: str | None = None
+    mechanism: str | None = None  # diferencial/mecanismo unico
+    main_offer: str | None = None
+    monetization_format: str | None = None
+
+    # --- preco (SEMPRE hipotese quando nao ha benchmark real -- nunca fato) ---
+    price: str | None = None
+    price_is_hypothesis: bool = True
+    bonuses: list[str] = field(default_factory=list)
+    order_bump: str | None = None
+    upsell: list[str] = field(default_factory=list)
+    downsell: list[str] = field(default_factory=list)
+
+    # --- aquisicao/venda ---
+    acquisition_channels: list[str] = field(default_factory=list)
+    sales_channels: list[str] = field(default_factory=list)
+
+    # --- pagina de vendas ---
+    sales_page_structure: str | None = None
+    headline: str | None = None
+    promise: str | None = None  # promessa RESPONSAVEL (nunca prometer resultado irreal)
+    key_arguments: list[str] = field(default_factory=list)
+    objections: list[dict] = field(default_factory=list)  # [{"objecao":..., "resposta":...}]
+    cta: str | None = None
+
+    # --- funil/conteudo/lancamento ---
+    funnel_structure: str | None = None
+    email_sequence: list[dict] = field(default_factory=list)  # 5 emails: {"numero","objetivo","assunto","resumo"}
+    content_strategy: str | None = None
+    content_channels: list[str] = field(default_factory=list)  # ex.: YouTube/TikTok/Instagram
+    launch_strategy: str | None = None
+    plan_30_days: list[dict] = field(default_factory=list)  # [{"periodo":"dias 1-7", "acoes":[...]}]
+
+    # --- honestidade (DADO / EVIDENCIA / HIPOTESE / PENDENCIA -- nunca inventar) ---
+    evidence: list[str] = field(default_factory=list)
+    assumptions: list[str] = field(default_factory=list)  # hipoteses assumidas
+    missing_evidence: list[str] = field(default_factory=list)
+    risks: list[str] = field(default_factory=list)
+    dependencies: list[str] = field(default_factory=list)
+    next_steps: list[str] = field(default_factory=list)
+
+    approval_status: str = "DRAFT"  # DRAFT | READY_FOR_APPROVAL | APPROVED | REJECTED
+    generated_by: str | None = None
+
+    def esta_aprovado(self) -> bool:
+        """True SOMENTE se `approval_status == "APPROVED"` -- diferente de
+        `ProductBlueprint.esta_aprovado()`, aqui NAO ha um estado posterior
+        equivalente a "IN_PRODUCTION" (nenhum fluxo desta fase avanca o
+        Business Plan sozinho). `READY_FOR_APPROVAL` NUNCA conta como
+        aprovado -- e so um sinal de "pronto pra revisao humana". Existe
+        para consistencia de nomenclatura com `ProductBlueprint` e para
+        qualquer gate futuro (ex.: publicacao) que precise checar isso."""
+        return self.approval_status == "APPROVED"
+
+
+# Estados validos do Production Plan (Fase 4). So chega a existir depois do
+# Product Blueprint estar APPROVED (mesmo gate da Product Factory, Fase 3) --
+# por isso comeca sempre em IN_PRODUCTION (o unico artefato real desta fase,
+# o brief textual, ja foi executado nesse ponto). READY_TO_PUBLISH/PUBLISHED
+# sao estados reservados para fases futuras (nenhuma publicacao acontece aqui).
+PRODUCTION_PLAN_ESTADOS_VALIDOS = frozenset({
+    "DRAFT", "IN_PRODUCTION", "READY_TO_PUBLISH", "PUBLISHED",
+})
+
+
+@dataclass
+class ProductionPlan:
+    """
+    Plano de producao persistido (Fase 4). Complementa `core/product_factory.py`
+    (que continua sendo a UNICA logica de decisao de passos/execucao) guardando
+    o resultado no Project Brain -- sem isso, o plano so existia na memoria de
+    uma resposta do Telegram e se perdia depois de enviado.
+    """
+
+    project_id: str = ""
+    product_type: str = ""
+    created_at: str = field(default_factory=_agora)
+    updated_at: str = field(default_factory=_agora)
+    steps: list[dict] = field(default_factory=list)  # [{"nome","capability","disponivel","status","resultado"}]
+    deliverables: list[str] = field(default_factory=list)  # nomes dos entregaveis previstos para este tipo
+    dependencies: list[str] = field(default_factory=list)
+    status: str = "DRAFT"  # DRAFT | IN_PRODUCTION | READY_TO_PUBLISH | PUBLISHED
+
 
 @dataclass
 class ProjectBrain:
@@ -228,6 +369,9 @@ class ProjectBrain:
     decisao: Decisao = field(default_factory=Decisao)
     produto: Produto = field(default_factory=Produto)
     blueprint: ProductBlueprint | None = None
+    business_plan: BusinessPlan | None = None
+    production_plan: ProductionPlan | None = None
+    artifact_manifest: dict | None = None
     brand: Brand = field(default_factory=Brand)
     assets: Assets = field(default_factory=Assets)
     trafego: Trafego = field(default_factory=Trafego)
@@ -243,6 +387,8 @@ class ProjectBrain:
     @classmethod
     def from_dict(cls, d: dict) -> "ProjectBrain":
         blueprint_dict = d.get("blueprint")
+        business_plan_dict = d.get("business_plan")
+        production_plan_dict = d.get("production_plan")
         return cls(
             identidade=Identidade(**d["identidade"]),
             origem=Origem(**d.get("origem", {})),
@@ -251,6 +397,9 @@ class ProjectBrain:
             decisao=Decisao(**d.get("decisao", {})),
             produto=Produto(**d.get("produto", {})),
             blueprint=ProductBlueprint(**blueprint_dict) if blueprint_dict else None,
+            business_plan=BusinessPlan(**business_plan_dict) if business_plan_dict else None,
+            production_plan=ProductionPlan(**production_plan_dict) if production_plan_dict else None,
+            artifact_manifest=d.get("artifact_manifest"),
             brand=Brand(**d.get("brand", {})),
             assets=Assets(**d.get("assets", {})),
             trafego=Trafego(**d.get("trafego", {})),

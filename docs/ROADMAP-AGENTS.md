@@ -8,25 +8,28 @@ DESCOBRIR → VALIDAR → DECIDIR → CRIAR/AFILIAR/COMÉRCIO → PRODUZIR → P
 ```
 
 Onde estamos hoje: **DESCOBRIR** (`scalaflow_intel`, Marco 1), **VALIDAR +
-DECIDIR** (`opportunity_analyst` + Decision Engine, Fase 2), e a partir da
-Fase 3 o começo de **CRIAR** — `Product Architect` (propõe hipóteses de
-formato + recomendação, com aprovação humana obrigatória) e `Product
-Factory` (fundação: gate de aprovação + plano de produção + 1 artefato
-textual real). Desde a Fase 2.5 esses agentes já têm **onde buscar
-raciocínio real** quando precisam (`llm/openrouter.py`, ver
+DECIDIR** (`opportunity_analyst` + Decision Engine, Fase 2), **CRIAR**
+(`Product Architect` decide o FORMATO, Fase 3; `Business Builder` decide
+COMO transformar isso em negócio, Fase 4) e o começo de **PRODUZIR**
+(`Product Factory`: plano de produção específico por tipo + persistência +
+Artifact Manifest + 1 artefato textual real, Fase 3 completada na Fase 4).
+Desde a Fase 2.5 esses agentes já têm **onde buscar raciocínio real** quando
+precisam (`llm/openrouter.py`, ver
 [CRIS-OS-ARCHITECTURE.md](CRIS-OS-ARCHITECTURE.md#roteamento-por-custo-fase-25)).
-Todo o resto (`PRODUZIR` em diante, e a produção *completa* de `CRIAR`) é
-só visão — nada além da fundação da Fase 3 foi implementado.
+Todo o resto (produção *completa* de ativos, publicação, tráfego pago) é só
+visão — nada além da fundação (Fase 3) e da organização de negócio/produção
+(Fase 4) foi implementado.
 
 ## Agentes futuros (documentação de intenção — NÃO implementar ainda)
 
 | Agente | Papel no pipeline | Status |
 |---|---|---|
 | Product Architect | Propõe formato de produto (hipóteses + recomendação) | ✅ Implementado (Fase 3) |
-| Product Factory | Produz o produto em si (ebook, curso, SaaS, etc.) | 🟡 Fundação implementada (Fase 3) — produção completa é futura |
+| Business Builder | Transforma produto aprovado em plano de negócio (oferta/funil/lançamento) | ✅ Implementado (Fase 4) |
+| Product Factory | Produz o produto em si (ebook, curso, SaaS, etc.) | 🟡 Plano de produção por tipo + persistência + manifest (Fase 4) — produção completa dos ativos é futura |
 | Brand Architect | Nome, slogan, cores, direção visual (`ProjectBrain.brand`) | Visão |
-| Offer Architect | Estrutura da oferta/preço (`ProjectBrain.produto`) | Visão |
-| Sales Page Architect | Landing page (`ProjectBrain.assets.landing_page`) | Visão |
+| Offer Architect | Estrutura da oferta/preço — hoje coberto parcialmente pelo `ProjectBrain.business_plan` (Fase 4) | Visão (parcial) |
+| Sales Page Architect | Landing page (`ProjectBrain.assets.landing_page`) — estrutura já planejada em `business_plan.sales_page_structure` | Visão (parcial) |
 | Creative Director | Direção de criativos (`ProjectBrain.assets.creatives`) | Visão |
 | Video Agent | Produção de vídeo (`ProjectBrain.assets.videos`) | Visão |
 | Business Builder | Monta o negócio ao redor do produto | Visão |
@@ -108,13 +111,28 @@ compartilhado. Isso é o alicerce, não a solução completa: `user_id`/
 credenciais/custos por cliente. Ver
 [PRODUCT-ARCHITECT.md](PRODUCT-ARCHITECT.md#persistência-por-usuáriochat).
 
-## O que está explicitamente FORA desta fase
+**Passo concreto dado na Fase 4**: `Business Builder` e `Product Factory`
+operam sobre o **mesmo** `project_id`/foco já existente — nenhum agente novo
+criou seu próprio "projeto atual". `business_plan`/`production_plan`/
+`artifact_manifest` são só mais seções do mesmo `ProjectBrain`.
 
-- Product Factory / criação de produto **de fato** (a fundação — gate,
-  plano, 1 artefato textual — já existe; gerar os ativos completos
-  continua fora de escopo).
+## O que está explicitamente FORA desta fase (Fase 4)
+
+- Produção completa dos ativos (imagem, vídeo, mini-app funcional, landing
+  page publicada) — a Fase 4 só PLANEJA (Business Builder) e organiza os
+  entregáveis previstos por tipo (Product Factory); continua gerando só o
+  brief textual como artefato real.
+- Publicação, compra de domínio, deploy externo, criação/alteração de conta
+  externa, envio real de e-mail, campanha paga — tudo isso exige aprovação
+  humana explícita **separada**, ainda não implementada (fase futura).
+- Google Drive real (o Artifact Manifest é só a estrutura lógica, não
+  sincronizada).
+- Canva, geração automática de vídeo, geração em massa de imagens.
+- Executores de Meta Ads / Google Ads / TikTok Ads.
+- Performance Agent, Growth Intelligence, Máquina de Leads, outreach
+  automático.
+- Pagamentos/compras.
 - Tráfego pago / campanhas reais.
-- Conexão com Google Drive.
 - Conexão com contas de anúncio (Meta/TikTok/Google Ads).
 - Qualquer LLM/API de IA paga **além do OpenRouter** (adicionado na Fase 2.5;
   ver [CRIS-OS-ARCHITECTURE.md](CRIS-OS-ARCHITECTURE.md#roteamento-por-custo-fase-25)).

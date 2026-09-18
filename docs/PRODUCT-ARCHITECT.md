@@ -154,6 +154,53 @@ não só ao Product Architect — protege o sistema inteiro contra esse limite.
 - Toda aprovação/rejeição fica registrada em
   `ProjectBrain.historico.approvals`.
 
+## Expansão de hipóteses (correção pós-teste real da Fase 4)
+
+**Problema encontrado**: um pedido para EXPANDIR as hipóteses com formatos
+novos/diferentes e comparar com as já existentes (ex.: "proponha também
+alternativas mais interativas... compare com as hipóteses atuais") caía no
+mesmo cache de "só mostrar hipóteses já calculadas" e devolvia a lista
+antiga sem gerar nada novo.
+
+**Correção**: `tools/product_architect_tools.py:_eh_pedido_expansao`
+detecta esse pedido (frases como "novas/outras alternativas", "mais
+interativ", "diferenciad", "além dessas", "compare com as hipóteses
+atuais", ou menção a um formato específico — mini-app, ferramenta, sistema,
+calculadora, gerador, quiz, dashboard, extensão, agente, micro-SaaS — ainda
+não presente nos candidatos atuais), checada **antes** do cache de "ver
+alternativas". Quando detectado, `core/product_architect.py:expandir_candidatos`
+**sempre** chama o LLM de novo com um prompt dedicado que: pede formatos
+NOVOS (nunca repete os existentes), nunca favorece o formato do concorrente
+só porque ele foi usado no anúncio original, marca candidatos puramente
+inferidos como `is_inference: true` (renderizado como "INFERÊNCIA / HIPÓTESE
+— ainda sem validação externa"), gera uma comparação nova-vs-existente, e
+faz merge (nunca apaga hipóteses anteriores) sem promover uma
+recomendação/aprovação automática.
+
+## Separação evidência do concorrente / copy do produto novo (correção pós-teste real)
+
+**Problema encontrado**: o anúncio de origem (`origem.source_headline`/
+`source_copy`) é passado como contexto para o LLM entender público/
+problema/mecanismo/linguagem de mercado — mas o LLM chegou a ecoar
+alegações específicas do concorrente ("já ajudou mais de 13.000 pessoas",
+"Acesso Vitalício", "Lista de Fornecedor Incluso") como se fossem fatos do
+produto NOVO, e frases prospectivas sem evidência ("pode reduzir churn",
+"fáceis de escalar com tráfego pago") como se fossem conclusão.
+
+**Correção**: `core/evidence_guard.py` classifica texto gerado por LLM em 4
+categorias (fato inventado → removido; urgência/garantia sem oferta real →
+removido; promessa de resultado implícita → removida; funcionalidade ainda
+não construída, ex. "fornecedores confiáveis"/"comunidade de usuários" →
+**reescrita** como `[HIPÓTESE DE FUNCIONALIDADE: ... — ainda não aprovada/
+construída]`, preservando a ideia em vez de apagá-la). Aplicado em 3 camadas
+de defesa: candidatos do Product Architect (`_validar_candidato`), campos
+do Business Plan, e artefatos finais da Product Factory. As chaves de
+contexto enviadas ao LLM foram renomeadas para `..._DO_CONCORRENTE`
+(explícito) e ambos os prompts (Product Architect e Business Builder)
+ganharam uma regra crítica proibindo herdar alegações do concorrente como
+fato do produto novo. A evidência original nunca é alterada — só o que
+seria copy/fato do produto novo passa pelo filtro.
+
 ## Testes confirmados (real, pelo Telegram)
 
 - Link da Meta Ads Library reconhecido deterministicamente, oportunidade
@@ -168,6 +215,9 @@ não só ao Product Architect — protege o sistema inteiro contra esse limite.
   Telegram.
 - Reaproveitamento de candidatos já calculados sem nova chamada ao
   OpenRouter (custo zero na segunda pergunta sobre o mesmo formato).
+- "Aprovo o formato mini_app para este projeto" → aprovado, plano de
+  produção iniciado, `IN_PRODUCTION` — testado no projeto real de velas
+  artesanais (`proj_cb094b4ef6a4`).
 
 ## Limitações conhecidas
 
@@ -182,3 +232,8 @@ não só ao Product Architect — protege o sistema inteiro contra esse limite.
   ECONÔMICO (limitação já documentada desde a Fase 2.5, inalterada aqui).
 - Sem análise qualitativa de copy via IA fora do próprio Product Architect
   — Opportunity Analyst continua 100% determinístico, por design.
+- O Evidence Guard (`core/evidence_guard.py`) é baseado em padrões
+  conhecidos (regex), não em compreensão semântica plena — uma alegação
+  inventada com fraseado totalmente novo, fora dos padrões cobertos, pode
+  não ser detectada. Reforçado por instrução explícita no prompt como
+  primeira linha de defesa.

@@ -29,6 +29,8 @@ AGENT_MODULES = [
     "agents.scalaflow_intel",
     "agents.opportunity_analyst",
     "agents.product_architect",
+    "agents.business_builder",
+    "agents.product_factory",
 ]
 GENERAL_MODULE = "agents.geral"
 

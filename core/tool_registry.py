@@ -34,10 +34,30 @@ DRIVE_STORAGE = "DRIVE_STORAGE"
 GITHUB = "GITHUB"
 VERCEL = "VERCEL"
 
+# Capabilities de PLANEJAMENTO (Fase 4) -- diferem das acima (producao de
+# ATIVOS) por planejarem a ESTRUTURA comercial em torno do produto.
+BUSINESS_BUILDER = "BUSINESS_BUILDER"
+SALES_PAGE_PLANNER = "SALES_PAGE_PLANNER"
+FUNNEL_PLANNER = "FUNNEL_PLANNER"
+EMAIL_SEQUENCE_PLANNER = "EMAIL_SEQUENCE_PLANNER"
+CONTENT_PLANNER = "CONTENT_PLANNER"
+LAUNCH_PLANNER = "LAUNCH_PLANNER"
+
 TODAS_AS_CAPABILITIES = (
     MINI_APP_BUILDER, IMAGE_GENERATOR, VIDEO_GENERATOR, COPY_GENERATOR,
     LANDING_PAGE_BUILDER, CODE_GENERATOR, DRIVE_STORAGE, GITHUB, VERCEL,
+    BUSINESS_BUILDER, SALES_PAGE_PLANNER, FUNNEL_PLANNER,
+    EMAIL_SEQUENCE_PLANNER, CONTENT_PLANNER, LAUNCH_PLANNER,
 )
+
+# Status legivel de uma capability (Fase 4 -- pedido explicito: "cada
+# capability deve indicar claramente AVAILABLE / AVAILABLE_MANUAL /
+# NOT_CONNECTED"). Nao substitui `disponivel` (continua sendo o booleano que
+# o resto do codigo usa para decidir se executa) -- e so uma etiqueta mais
+# rica pra exibir/documentar.
+STATUS_AVAILABLE = "AVAILABLE"
+STATUS_AVAILABLE_MANUAL = "AVAILABLE_MANUAL"
+STATUS_NOT_CONNECTED = "NOT_CONNECTED"
 
 
 @dataclass
@@ -47,6 +67,19 @@ class ToolEntry:
     disponivel: bool
     executor: Callable[..., str] | None = None  # None = so cadastrado, sem implementacao
     observacao: str = ""
+    status: str = ""  # AVAILABLE | AVAILABLE_MANUAL | NOT_CONNECTED (ver acima)
+    # PLANNABLE (Fase 4 -- correcao pos-teste real): `disponivel=False`/
+    # `NOT_CONNECTED` significa "nao posso EXECUTAR/CONSTRUIR automaticamente
+    # com uma ferramenta externa" -- NAO significa "nao posso PLANEJAR ou
+    # ESCREVER a especificacao". `plannable=True` numa capability indisponivel
+    # sinaliza que a Product Factory ainda pode gerar uma especificacao/
+    # brief REAL via LLM (ex.: especificacao funcional de um mini-app, brief
+    # de branding, estrutura de landing page) mesmo sem builder conectado.
+    plannable: bool = False
+
+    def __post_init__(self) -> None:
+        if not self.status:
+            self.status = STATUS_AVAILABLE if self.disponivel else STATUS_NOT_CONNECTED
 
 
 class ToolRegistry:
@@ -64,15 +97,25 @@ class ToolRegistry:
         disponivel: bool,
         executor: Callable[..., str] | None = None,
         observacao: str = "",
+        status: str = "",
+        plannable: bool = False,
     ) -> None:
         self._entries[capability] = ToolEntry(
             capability=capability, provider_name=provider_name,
             disponivel=disponivel, executor=executor, observacao=observacao,
+            status=status, plannable=plannable,
         )
 
     def disponivel(self, capability: str) -> bool:
         entry = self._entries.get(capability)
         return bool(entry and entry.disponivel and entry.executor)
+
+    def plannable(self, capability: str) -> bool:
+        """True se a Product Factory pode PLANEJAR/ESPECIFICAR esta
+        capability via LLM mesmo sem executor conectado (ver docstring de
+        `ToolEntry.plannable`)."""
+        entry = self._entries.get(capability)
+        return bool(entry and entry.plannable)
 
     def obter(self, capability: str) -> ToolEntry | None:
         return self._entries.get(capability)
@@ -114,22 +157,70 @@ def criar_registry_padrao() -> ToolRegistry:
         observacao="texto simples via OpenRouter (tier economico)",
     )
     registry.registrar(
-        MINI_APP_BUILDER, provider_name="(nao definido)", disponivel=False,
+        MINI_APP_BUILDER, provider_name="ferramenta manual da Cris", disponivel=False,
+        status=STATUS_AVAILABLE_MANUAL, plannable=True,
         observacao=(
             "A Cris ja tem um criador proprio de mini-apps (prompt -> mini "
             "sistema/app/prototipo, conectavel a Supabase/Firebase). NAO "
-            "integrado ainda -- falta interface/API definida. Registrado "
-            "aqui so para reservar o nome da capability."
+            "integrado ainda -- falta interface/API definida. Disponivel "
+            "MANUALMENTE (a Cris pode usar por fora); a Product Factory nao "
+            "pode EXECUTAR/CONSTRUIR sozinha nesta fase, mas PLANEJA "
+            "(especificacao funcional/prompt de build) via LLM."
         ),
     )
-    for cap in (IMAGE_GENERATOR, VIDEO_GENERATOR):
+    # IMAGE_GENERATOR/VIDEO_GENERATOR: geracao de ASSET (pixel/frame) em si
+    # nao acontece nesta fase -- mas a DIRECAO/BRIEF de branding (texto) e
+    # PLANNABLE (pedido explicito da Fase 4: "BRANDING: DIRECAO/BRIEF =
+    # PLANNABLE, GERACAO DE IMAGEM = NOT_CONNECTED").
+    registry.registrar(
+        IMAGE_GENERATOR, provider_name="(nao definido)", disponivel=False,
+        plannable=True,
+        observacao=(
+            "Geracao real de imagem NAO acontece nesta fase. Direcao/brief "
+            "de branding (cores, tom, referencias) e PLANNABLE via LLM."
+        ),
+    )
+    registry.registrar(
+        VIDEO_GENERATOR, provider_name="(nao definido)", disponivel=False,
+        observacao="Assets caros (video) NAO gerados nem planejados em detalhe nesta fase.",
+    )
+    for cap in (LANDING_PAGE_BUILDER, CODE_GENERATOR, GITHUB):
         registry.registrar(
             cap, provider_name="(nao definido)", disponivel=False,
-            observacao="Assets caros (imagem/video) NAO gerados automaticamente nesta fase.",
+            plannable=True,
+            observacao=(
+                "Deploy/execucao automatica NAO acontece nesta fase. "
+                "Copy/estrutura (landing), especificacao tecnica (codigo) "
+                "e indice de documentacao sao PLANNABLE via LLM."
+            ),
         )
-    for cap in (LANDING_PAGE_BUILDER, CODE_GENERATOR, DRIVE_STORAGE, GITHUB, VERCEL):
+    for cap in (DRIVE_STORAGE, VERCEL):
         registry.registrar(
             cap, provider_name="(nao definido)", disponivel=False,
             observacao="Fundacao apenas -- sem fornecedor definido nesta fase.",
         )
+    # Capabilities de planejamento (Fase 4): SALES_PAGE_PLANNER/FUNNEL_PLANNER/
+    # EMAIL_SEQUENCE_PLANNER/CONTENT_PLANNER/LAUNCH_PLANNER sao geradas hoje
+    # INLINE, num unico calculo, pelo Business Builder (`core/business_builder.py`
+    # -> `BusinessPlan.sales_page_structure/funnel_structure/email_sequence/
+    # content_strategy/launch_strategy`) -- ainda nao sao capabilities
+    # executaveis SEPARADAMENTE pelo Tool Registry. Registradas aqui so para
+    # reservar o nome/expor a intencao futura (pedido explicito da Fase 4);
+    # "Nada de capability falsa" -- por isso ficam marcadas indisponiveis.
+    for cap in (SALES_PAGE_PLANNER, FUNNEL_PLANNER, EMAIL_SEQUENCE_PLANNER,
+                CONTENT_PLANNER, LAUNCH_PLANNER):
+        registry.registrar(
+            cap, provider_name="(nao definido)", disponivel=False,
+            observacao=(
+                "Gerado hoje INLINE como parte do Business Plan unico "
+                "(core/business_builder.py), nao como uma execucao separada "
+                "desta capability. Reservado para quando isso virar uma "
+                "execucao independente."
+            ),
+        )
+    # BUSINESS_BUILDER e PRODUCT_FACTORY nao sao capabilities de PRODUCAO
+    # (o que este registry cataloga) -- sao os proprios AGENTES/fases que
+    # CONSOMEM este registry (ver docs/TOOL-REGISTRY.md). Registra-los aqui
+    # seria uma capability "de mentirinha" (nunca executada via
+    # `registry.executar`) -- por isso ficam de fora de proposito.
     return registry

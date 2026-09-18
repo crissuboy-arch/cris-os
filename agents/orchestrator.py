@@ -94,6 +94,51 @@ _PRODUCT_ARCHITECT_CONTINUACAO_FRASES = (
     "quero outra", "outra alternativa", "por que",
 )
 
+# Business Builder (Fase 4) e checado ANTES do product_architect: frases como
+# "transforme esse produto aprovado em um negocio" contem "produto" (palavra
+# do product_architect) mas a intencao e clara e mais especifica (montar
+# NEGOCIO em cima do produto ja aprovado) -- mesmo padrao de precedencia ja
+# usado para product_architect vs. opportunity_analyst na Fase 3. "oferta" e
+# de proposito NAO incluida como palavra solta (colide com _SCALAFLOW_KEYWORDS
+# -- "quais sao as ofertas hoje" continua indo pro scalaflow_intel), so como
+# parte de frases especificas.
+_BUSINESS_BUILDER_KEYWORDS = frozenset({"negocio", "negócio", "monetiz"})
+_BUSINESS_BUILDER_FRASES = (
+    "modelo de negocio", "modelo de negócio",
+    "plano de negocio", "plano de negócio",
+    "monte a oferta", "montar a oferta", "estruture a oferta",
+    "monte o modelo de negocio", "monte o modelo de negócio",
+    "como vamos monetizar", "transforme em negocio", "transforme em negócio",
+    "transforme esse produto em um negocio", "transforme esse produto em um negócio",
+    "transforme o produto aprovado em um negocio", "transforme o produto aprovado em um negócio",
+    "transforme esse produto aprovado em um negocio", "transforme esse produto aprovado em um negócio",
+)
+
+# Product Factory (Fase 4) tambem e checado ANTES do product_architect pelo
+# mesmo motivo ("o que precisa ser produzido para lancar esse produto" contem
+# "produto"). "producao"/"artefatos" nao colidem com nenhum outro agente.
+#
+# CORRECAO pos-teste real: "manifesto"/"manifest" (leitura determinística do
+# GET_CURRENT_PROJECT_MANIFEST, ver `tools/product_factory_tools.py`) faltava
+# aqui -- a Tool ja reconhecia a palavra, mas o ORCHESTRATOR nunca chegava a
+# escolher o agente `product_factory` pra essa mensagem (caia no roteamento
+# via LLM, que mandou pro assistente generico -- "Não tenho acesso ao
+# manifesto..."). Mesma classe de bug ja corrigida 3x na Fase 3 (Tool precisa
+# ser SUPERSET do orchestrator), mas na direcao oposta desta vez: era o
+# ORCHESTRATOR que estava desatualizado em relacao a Tool.
+_PRODUCT_FACTORY_KEYWORDS = frozenset({
+    "producao", "produção", "artefatos", "entregaveis", "entregáveis",
+    "manifesto", "manifest",
+})
+_PRODUCT_FACTORY_FRASES = (
+    "plano de producao", "plano de produção",
+    "quais artefatos", "o que precisa ser produzido",
+    "manifesto atual", "manifesto deste projeto", "manifesto do projeto",
+    "mostre o manifesto", "mostre somente o manifesto",
+    "qual o status do projeto", "qual é o status do projeto",
+    "mostre a estrutura atual do projeto", "estrutura atual do projeto",
+)
+
 
 def _model_name(llm: object) -> str:
     """Extrai o nome do modelo do provedor LLM."""
@@ -255,6 +300,26 @@ class AgentOrchestrator:
                 )
                 return self.agents[ultimo]
 
+        # 2.2) Interceptacao deterministica do Business Builder (Fase 4),
+        #      checada ANTES do product_architect -- "transforme esse produto
+        #      aprovado em um negocio" contem "produto" mas a intencao e mais
+        #      especifica (montar negocio).
+        if "business_builder" in self.agents and self._eh_comando_business_builder(texto):
+            logger.info(
+                "=== [ORCHESTRATOR] Interceptacao deterministica: 'business_builder' "
+                "(sem passar pelo LLM/Ollama) ===",
+            )
+            return self.agents["business_builder"]
+
+        # 2.3) Interceptacao deterministica do Product Factory (Fase 4),
+        #      checada ANTES do product_architect pelo mesmo motivo.
+        if "product_factory" in self.agents and self._eh_comando_product_factory(texto):
+            logger.info(
+                "=== [ORCHESTRATOR] Interceptacao deterministica: 'product_factory' "
+                "(sem passar pelo LLM/Ollama) ===",
+            )
+            return self.agents["product_factory"]
+
         # 2.5) Interceptacao deterministica do Product Architect (Fase 3),
         #      checada ANTES do opportunity_analyst -- "pegue uma das minhas
         #      melhores oportunidades e me diga que produto criar" nao pode
@@ -320,6 +385,40 @@ class AgentOrchestrator:
             return self.agents[nome_agente]
 
         return None
+
+    @staticmethod
+    def _eh_comando_business_builder(texto: str) -> bool:
+        """Detecta comandos do Business Builder por palavra-chave/frase (sem
+        LLM). Ver `_BUSINESS_BUILDER_KEYWORDS`/`_BUSINESS_BUILDER_FRASES`
+        sobre por que "oferta" sozinha nao entra aqui."""
+        texto_lower = texto.lower()
+        palavras = set(texto_lower.split())
+        if palavras & _BUSINESS_BUILDER_KEYWORDS:
+            return True
+        if any(kw in texto_lower for kw in _BUSINESS_BUILDER_KEYWORDS):
+            return True
+        return any(f in texto_lower for f in _BUSINESS_BUILDER_FRASES)
+
+    @staticmethod
+    def _eh_comando_product_factory(texto: str) -> bool:
+        """Detecta comandos do Product Factory por palavra-chave/frase (sem LLM)."""
+        texto_lower = texto.lower()
+        palavras = set(texto_lower.split())
+        if palavras & _PRODUCT_FACTORY_KEYWORDS:
+            return True
+        if any(kw in texto_lower for kw in _PRODUCT_FACTORY_KEYWORDS):
+            return True
+        if any(f in texto_lower for f in _PRODUCT_FACTORY_FRASES):
+            return True
+        # "status"/"estrutura" + "projeto" juntos (qualquer fraseado) -- mais
+        # flexivel que uma frase fixa pra pedidos de status do manifesto
+        # (ex.: "qual o status DESTE projeto" -- variacao real do teste --
+        # nao bate a frase fixa "status DO projeto"), mas ainda exige AMBAS
+        # as palavras pra nao capturar mensagens genericas sem relacao
+        # nenhuma (ex.: "status da minha entrega dos Correios").
+        if ("status" in texto_lower or "estrutura" in texto_lower) and "projeto" in texto_lower:
+            return True
+        return False
 
     @staticmethod
     def _eh_comando_product_architect(texto: str) -> bool:
@@ -431,6 +530,8 @@ class AgentOrchestrator:
               "bug", "erro", "terminal", "bash", "powershell", "backend",
               "frontend", "github", "git"], "programador"),
             (list(_PRODUCT_ARCHITECT_KEYWORDS), "product_architect"),
+            (list(_BUSINESS_BUILDER_KEYWORDS), "business_builder"),
+            (list(_PRODUCT_FACTORY_KEYWORDS), "product_factory"),
             (["proposta", "orcamento", "pitch", "negociacao",
               "prospeccao", "comercial", "argumentario"], "vendas"),
             (["atendimento", "suporte", "reclamacao", "cancelamento",
@@ -504,6 +605,13 @@ class AgentOrchestrator:
             "produto": "product_architect",
             "architect": "product_architect",
             "arquiteto": "product_architect",
+            "negocio": "business_builder",
+            "negócio": "business_builder",
+            "builder": "business_builder",
+            "producao": "product_factory",
+            "produção": "product_factory",
+            "factory": "product_factory",
+            "fabrica": "product_factory",
         }
         n = nome.strip().lower().replace("-", "_")
         return aliases.get(n, n)
