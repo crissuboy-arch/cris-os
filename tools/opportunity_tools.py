@@ -40,7 +40,7 @@ from core.decision_engine import (
     preparar_analise_afiliacao,
     preparar_analise_comercio,
 )
-from memory import ProjectBrainStore, UserFocusStore
+from memory import PendingApprovalStore, ProjectBrainStore, UserFocusStore
 from memory.layers import ProjectMemory
 from storage import SQLiteMemory
 from tools.base import Tool
@@ -149,6 +149,15 @@ def get_project_brain_store() -> ProjectBrainStore:
     """Alias público de `_get_project_brain_store` para outros módulos
     (Fase 3) reaproveitarem a mesma store/conexão em vez de abrir outra."""
     return _get_project_brain_store()
+
+
+def get_pending_approval_store() -> PendingApprovalStore:
+    """Reaproveita a MESMA `ProjectMemory` do ProjectBrainStore (Fase 6 --
+    mesmo princípio de `_get_user_focus_store`, nenhum banco paralelo).
+    Construído a cada chamada (não cacheado) para nunca servir um backend
+    antigo caso `get_project_brain_store` mude (ex.: testes trocando de
+    banco)."""
+    return PendingApprovalStore(_get_project_brain_store().project_memory)
 
 
 def _get_project_brain_store() -> ProjectBrainStore:

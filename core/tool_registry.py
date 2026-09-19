@@ -51,12 +51,19 @@ LAUNCH_PLANNER = "LAUNCH_PLANNER"
 # (pedido explicito da Fase 5) -- nao e uma capability "de mentirinha".
 PAID_TRAFFIC_ARCHITECT = "PAID_TRAFFIC_ARCHITECT"
 
+# Capability de EXECUCAO de campanha (Fase 6). Mesma excecao deliberada de
+# PAID_TRAFFIC_ARCHITECT (nao BUSINESS_BUILDER/PRODUCT_FACTORY): pedido
+# explicito da Fase 6 foi registra-la de verdade -- `tools/campaign_executor_tools.py`
+# chama `registry.executar(CAMPAIGN_EXECUTOR, ...)` como o caminho REAL de
+# geracao da especificacao (nunca executa nenhuma campanha real).
+CAMPAIGN_EXECUTOR = "CAMPAIGN_EXECUTOR"
+
 TODAS_AS_CAPABILITIES = (
     MINI_APP_BUILDER, IMAGE_GENERATOR, VIDEO_GENERATOR, COPY_GENERATOR,
     LANDING_PAGE_BUILDER, CODE_GENERATOR, DRIVE_STORAGE, GITHUB, VERCEL,
     BUSINESS_BUILDER, SALES_PAGE_PLANNER, FUNNEL_PLANNER,
     EMAIL_SEQUENCE_PLANNER, CONTENT_PLANNER, LAUNCH_PLANNER,
-    PAID_TRAFFIC_ARCHITECT,
+    PAID_TRAFFIC_ARCHITECT, CAMPAIGN_EXECUTOR,
 )
 
 # Status legivel de uma capability (Fase 4 -- pedido explicito: "cada
@@ -246,5 +253,22 @@ def criar_registry_padrao() -> ToolRegistry:
         PAID_TRAFFIC_ARCHITECT, provider_name="openrouter", disponivel=True,
         executor=criar_plano_trafego,
         observacao="planejamento de trafego pago via OpenRouter (tier inteligente) -- nunca executa campanha",
+    )
+
+    # CAMPAIGN_EXECUTOR (Fase 6) -- mesma excecao documentada acima:
+    # `tools/campaign_executor_tools.py` chama `registry.executar(CAMPAIGN_EXECUTOR, ...)`
+    # como caminho REAL de geracao da CampaignSpec. O executor devolve um
+    # `CampaignSpec` (objeto estruturado), nao uma string -- mesmo desvio ja
+    # documentado para PAID_TRAFFIC_ARCHITECT.
+    from core.campaign_executor import criar_campaign_spec
+
+    registry.registrar(
+        CAMPAIGN_EXECUTOR, provider_name="openrouter", disponivel=True,
+        executor=criar_campaign_spec,
+        observacao=(
+            "transforma um TrafficPlan aprovado em especificacao de "
+            "campanha via OpenRouter (tier inteligente) -- nunca publica, "
+            "nunca conecta conta de anuncio, nunca gasta"
+        ),
     )
     return registry

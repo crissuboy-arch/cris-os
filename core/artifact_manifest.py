@@ -117,15 +117,38 @@ def _pasta_funil(brain: ProjectBrain) -> dict:
 
 
 def _pasta_trafego_pago(brain: ProjectBrain) -> dict:
-    """Fase 5 -- reflete `brain.traffic_plan.status` real, nunca uma segunda
-    fonte de verdade: EMPTY/NOT_STARTED antes de existir plano,
-    READY_FOR_APPROVAL depois de gerado, APPROVED depois de aprovacao
-    humana (nunca inferida)."""
+    """Fase 5/6 -- reflete `brain.traffic_plan.status` E `brain.campaign_spec`
+    reais, nunca uma segunda fonte de verdade: EMPTY/NOT_STARTED antes de
+    existir plano, READY_FOR_APPROVAL/APPROVED depois, e (Fase 6) versao/
+    canal/approval state/execution mode da CampaignSpec quando ja existir."""
     tp = brain.traffic_plan
     if not tp:
         return {"conteudo": [], "status": "EMPTY / NOT_STARTED"}
     conteudo = [f"{len(tp.channels)} canal(is) avaliado(s)"] if tp.channels else []
+    spec = brain.campaign_spec
+    if spec:
+        conteudo.append(
+            f"CampaignSpec v{spec.version} -- canal: {spec.channel} -- "
+            f"status: {spec.status} -- modo: {spec.execution_mode}",
+        )
     return {"conteudo": conteudo, "status": tp.status}
+
+
+def _pasta_resultados(brain: ProjectBrain) -> dict:
+    """Fase 6 -- reflete `brain.performance_snapshots` (historico real,
+    nunca inventado): vazio antes de qualquer snapshot, senao status das
+    metricas/ultima coleta e se ha diagnostico disponivel (SIMULATED nunca
+    conta como snapshot utilizavel para diagnostico -- so REAL/IMPORTED)."""
+    snapshots = brain.performance_snapshots
+    if not snapshots:
+        return {"conteudo": [], "status": "vazio (nenhuma campanha rodou ainda)"}
+    ultimo = snapshots[-1]
+    utilizaveis = [s for s in snapshots if s.source in {"REAL", "IMPORTED"}]
+    conteudo = [
+        f"{len(snapshots)} snapshot(s) registrado(s) -- ultimo: {ultimo.source} ({ultimo.collected_at})",
+    ]
+    status = "diagnostico disponivel" if utilizaveis else "sem metricas reais/importadas ainda (so SIMULATED, se houver)"
+    return {"conteudo": conteudo, "status": status}
 
 
 def gerar_manifest(brain: ProjectBrain) -> dict:
@@ -145,7 +168,7 @@ def gerar_manifest(brain: ProjectBrain) -> dict:
         "08-Copy": _pasta_copy(brain),
         "09-Funil": _pasta_funil(brain),
         "10-Trafego-Pago": _pasta_trafego_pago(brain),
-        "11-Resultados": _pasta_generica([], "vazio (nenhuma campanha rodou ainda)"),
+        "11-Resultados": _pasta_resultados(brain),
     }
     return {
         "raiz": f"SCALAFLOW/PRODUTOS/{brain.project_id}/",
@@ -158,6 +181,7 @@ def gerar_manifest(brain: ProjectBrain) -> dict:
             "status_business_plan": brain.business_plan.approval_status if brain.business_plan else None,
             "status_producao": brain.production_plan.status if brain.production_plan else None,
             "status_trafego_pago": brain.traffic_plan.status if brain.traffic_plan else None,
+            "status_campaign_spec": brain.campaign_spec.status if brain.campaign_spec else None,
             "atualizado_em": brain.identidade.updated_at,
         },
         "sincronizado_com_drive": False,
@@ -225,6 +249,7 @@ def formatar_manifesto_get_current(manifest: dict) -> str:
         f"  status_business_plan: {mp['status_business_plan']}",
         f"  status_producao: {mp['status_producao']}",
         f"  status_trafego_pago: {mp['status_trafego_pago']}",
+        f"  status_campaign_spec: {mp['status_campaign_spec']}",
         f"  updated_at: {mp['atualizado_em']}",
     ]
     return "\n".join(linhas)

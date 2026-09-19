@@ -158,6 +158,39 @@ _PAID_TRAFFIC_FRASES = (
     "google display", "youtube ads",
 )
 
+# Campaign Executor (Fase 6) e checado ANTES do product_architect (mesmo
+# motivo dos agentes acima: "prepare a campanha desse PRODUTO" contem
+# "produto") e DEPOIS do Paid Traffic Architect -- frases distintas de
+# proposito ("prepare/monte/crie/estruture a campanha" vs. "plano de
+# campanha"/"campanha paga", que continuam do paid_traffic_architect) para
+# nao colidir. "campanha" sozinha NAO entra como palavra solta (colidiria
+# com as frases ja mapeadas pro paid_traffic_architect) -- so as frases
+# especificas abaixo.
+_CAMPAIGN_EXECUTOR_FRASES = (
+    "prepare a campanha", "monte a campanha", "crie a campanha",
+    "crie o rascunho da campanha", "estruture a campanha",
+    "mostre como esta campanha ficaria", "mostre como essa campanha ficaria",
+    "preview da campanha", "quero ver como vai ficar",
+    "veja como ficaria a campanha", "status da campanha",
+    "qual o status da campanha",
+)
+
+# Performance Agent (Fase 6) e checado ANTES do product_architect e ANTES do
+# opportunity_analyst ("analise"/"analisar" esta em `_OPPORTUNITY_KEYWORDS`
+# -- "analise a performance desta campanha" nao pode virar uma investigacao
+# de oportunidade nova). Frases distintas de "status da campanha"
+# (Campaign Executor -- status da ESPECIFICACAO) vs. "como esta a
+# campanha"/"performance" (Performance Agent -- resultado REAL da campanha).
+_PERFORMANCE_AGENT_FRASES = (
+    "como esta a campanha", "como está a campanha",
+    "como esta a performance", "como está a performance",
+    "analise os resultados", "analise a performance", "analisar a performance",
+    "veja a performance", "resultado da campanha", "resultados da campanha",
+    "metricas da campanha", "métricas da campanha",
+    "performance da campanha", "performance desta campanha",
+    "performance deste projeto",
+)
+
 
 def _model_name(llm: object) -> str:
     """Extrai o nome do modelo do provedor LLM."""
@@ -205,6 +238,20 @@ class AgentOrchestrator:
 
         if not texto:
             return ""
+
+        # 0) Aprovacao/rejeicao contextual (Fase 6 -- correcao estrutural):
+        #    checada ANTES de qualquer selecao de agente/LLM. Resolve
+        #    "Aprovado"/"Rejeitado" usando a PENDENCIA PERSISTIDA (qual
+        #    artefato -- TrafficPlan/CampaignSpec -- esta aguardando
+        #    aprovacao para esta sessao), nunca por adivinhacao. Ver
+        #    `core/approval_router.py`.
+        resposta_aprovacao = self._resolver_aprovacao_contextual(user_id, incoming.session, texto)
+        if resposta_aprovacao is not None:
+            logger.info(
+                "=== [ORCHESTRATOR] Aprovacao contextual resolvida deterministicamente "
+                "(sem LLM, sem selecao de agente) ===",
+            )
+            return resposta_aprovacao
 
         agent = self._escolher_agente(user_id, texto)
         elapsed = (time.perf_counter() - t0) * 1000
@@ -302,6 +349,37 @@ class AgentOrchestrator:
     #  Metodos internos
     # ------------------------------------------------------------------
 
+    def _resolver_aprovacao_contextual(self, user_id: str, session: str, texto: str) -> str | None:
+        """
+        Devolve a resposta final (string) se `texto` for uma aprovacao/
+        rejeicao resolvivel via pendencia PERSISTIDA (Fase 6) -- devolve
+        `None` caso contrario, deixando o fluxo normal de selecao de agente
+        seguir (isso inclui o caso "nao e uma aprovacao" E o caso "o
+        Product Architect (Fase 3) ja tem seu proprio mecanismo de
+        continuidade funcional pra essa mensagem, nao rouba essa
+        interceptacao dele").
+        """
+        from core.approval_router import eh_mensagem_de_aprovacao_ou_rejeicao, resolver_aprovacao_contextual
+
+        if not eh_mensagem_de_aprovacao_ou_rejeicao(texto):
+            return None
+
+        # Nao rouba a continuacao ja estabelecida do Product Architect
+        # (Fase 3, baseada em `last_agents`) -- se o ultimo agente foi ele E
+        # a mensagem bate no padrao de continuidade dele, deixa o mecanismo
+        # antigo (ja funcional, nao reportado como bug) resolver.
+        if (
+            self.last_agents.get(user_id) == "product_architect"
+            and self._eh_continuacao_product_architect(texto)
+        ):
+            return None
+
+        from tools.opportunity_tools import get_pending_approval_store, get_project_brain_store
+
+        return resolver_aprovacao_contextual(
+            texto, session, get_pending_approval_store(), get_project_brain_store(),
+        )
+
     def _escolher_agente(self, user_id: str, texto: str) -> SpecialistAgent | None:
         """Escolhe o agente com base no estado do usuario e na mensagem."""
         # 1) Se usuario tem agente fixo definido via /use
@@ -348,6 +426,26 @@ class AgentOrchestrator:
                 "(sem passar pelo LLM/Ollama) ===",
             )
             return self.agents["paid_traffic_architect"]
+
+        # 2.41) Interceptacao deterministica do Campaign Executor (Fase 6),
+        #       checada ANTES do product_architect ("produto") e DEPOIS do
+        #       Paid Traffic Architect (frases distintas, sem colisao).
+        if "campaign_executor" in self.agents and self._eh_comando_campaign_executor(texto):
+            logger.info(
+                "=== [ORCHESTRATOR] Interceptacao deterministica: 'campaign_executor' "
+                "(sem passar pelo LLM/Ollama) ===",
+            )
+            return self.agents["campaign_executor"]
+
+        # 2.42) Interceptacao deterministica do Performance Agent (Fase 6),
+        #       checada ANTES do opportunity_analyst ("analise"/"analisar"
+        #       colide com _OPPORTUNITY_KEYWORDS).
+        if "performance_agent" in self.agents and self._eh_comando_performance_agent(texto):
+            logger.info(
+                "=== [ORCHESTRATOR] Interceptacao deterministica: 'performance_agent' "
+                "(sem passar pelo LLM/Ollama) ===",
+            )
+            return self.agents["performance_agent"]
 
         # 2.5) Interceptacao deterministica do Product Architect (Fase 3),
         #      checada ANTES do opportunity_analyst -- "pegue uma das minhas
@@ -472,6 +570,22 @@ class AgentOrchestrator:
         ):
             return True
         return False
+
+    @staticmethod
+    def _eh_comando_campaign_executor(texto: str) -> bool:
+        """Detecta comandos do Campaign Executor por frase (sem LLM). Ver
+        comentario de `_CAMPAIGN_EXECUTOR_FRASES` sobre por que "campanha"
+        nao entra como palavra solta."""
+        texto_lower = texto.lower()
+        return any(f in texto_lower for f in _CAMPAIGN_EXECUTOR_FRASES)
+
+    @staticmethod
+    def _eh_comando_performance_agent(texto: str) -> bool:
+        """Detecta comandos do Performance Agent por frase (sem LLM)."""
+        texto_lower = texto.lower()
+        if "performance" in texto_lower.split() or "desempenho" in texto_lower.split():
+            return True
+        return any(f in texto_lower for f in _PERFORMANCE_AGENT_FRASES)
 
     @staticmethod
     def _eh_comando_product_architect(texto: str) -> bool:
@@ -599,6 +713,7 @@ class AgentOrchestrator:
             (["rotina", "agenda", "planejar", "produtividade",
               "tarefas", "prioridade", "checklist", "pomodoro"], "produtividade"),
             (list(_SCALAFLOW_KEYWORDS), "scalaflow_intel"),
+            (["performance", "desempenho"], "performance_agent"),
         ]
 
         multi: list[tuple[str, str]] = [
@@ -614,6 +729,8 @@ class AgentOrchestrator:
             ("top 10", "scalaflow_intel"),
             ("top produtos", "scalaflow_intel"),
             ("produto vencedor", "scalaflow_intel"),
+            *[(frase, "campaign_executor") for frase in _CAMPAIGN_EXECUTOR_FRASES],
+            *[(frase, "performance_agent") for frase in _PERFORMANCE_AGENT_FRASES],
         ]
 
         for keywords, agent_name in regras:
@@ -670,6 +787,11 @@ class AgentOrchestrator:
             "tráfego": "paid_traffic_architect",
             "traffic": "paid_traffic_architect",
             "ads": "paid_traffic_architect",
+            "campanha": "campaign_executor",
+            "campaign": "campaign_executor",
+            "executor": "campaign_executor",
+            "performance": "performance_agent",
+            "desempenho": "performance_agent",
         }
         n = nome.strip().lower().replace("-", "_")
         return aliases.get(n, n)

@@ -464,6 +464,137 @@ class TrafficPlan:
         return self.status == "APPROVED"
 
 
+def novo_campaign_id() -> str:
+    return "camp_" + uuid.uuid4().hex[:12]
+
+
+# Estados validos da CampaignSpec (Fase 6 -- Campaign Executor). SOMENTE
+# criada depois que o TrafficPlan (Fase 5) ja estiver `esta_aprovado()`
+# (checado ANTES de qualquer chamada de LLM/escrita -- ver
+# `core/campaign_executor.py`). NUNCA existe um estado "PUBLISHED"/"LIVE"
+# nesta fase -- publicacao externa esta fora de escopo.
+CAMPAIGN_SPEC_ESTADOS_VALIDOS = frozenset({
+    "NOT_STARTED", "NEEDS_INFORMATION", "READY_FOR_APPROVAL", "APPROVED",
+})
+
+# Modo de execucao (Fase 6). `READY_FOR_EXTERNAL_EXECUTION` e um estado
+# RESERVADO para uma fase futura com um conector real conectado -- nesta
+# fase `execution_mode` fica SEMPRE `EXTERNAL_EXECUTION_DISABLED` (mesmo
+# depois de `CampaignSpec.esta_aprovado()`). `DRY_RUN` e usado so na
+# EXIBICAO do preview (nunca persistido como o modo real da spec).
+CAMPAIGN_EXECUTION_MODES = frozenset({
+    "DRY_RUN", "EXTERNAL_EXECUTION_DISABLED", "READY_FOR_EXTERNAL_EXECUTION",
+})
+
+
+@dataclass
+class CampaignSpec:
+    """
+    Especificacao executavel de UMA campanha (Fase 6 -- Campaign Executor),
+    derivada do canal PRIMARY_TEST de um TrafficPlan JA APROVADO. NUNCA
+    executa/publica/gasta nada -- so estrutura a especificacao. Dois gates
+    separados existem: GATE A (aprovacao do TrafficPlan, Fase 5) e GATE B
+    (aprovacao desta CampaignSpec como ESPECIFICACAO) -- nenhum dos dois
+    libera execucao externa nesta fase (`execution_mode` permanece
+    `EXTERNAL_EXECUTION_DISABLED` mesmo apos `esta_aprovado()`).
+    """
+
+    campaign_id: str = ""
+    project_id: str = ""
+    version: int = 1
+    status: str = "NOT_STARTED"  # NOT_STARTED | NEEDS_INFORMATION | READY_FOR_APPROVAL | APPROVED
+    created_at: str = field(default_factory=_agora)
+    updated_at: str = field(default_factory=_agora)
+
+    source_traffic_plan_version: int | None = None
+    channel: str | None = None  # um dos TRAFFIC_CHANNELS (canal PRIMARY_TEST do plano)
+    objective: str | None = None
+    country: str | None = None
+    language: str | None = None
+    destination: str | None = None
+    conversion_event: str | None = None
+
+    campaign_structure: str | None = None
+    ad_sets: list[str] = field(default_factory=list)
+    audience_hypotheses: list[str] = field(default_factory=list)
+    placements: list[str] = field(default_factory=list)
+    creative_requirements: list[str] = field(default_factory=list)
+    copy_requirements: list[str] = field(default_factory=list)
+    # Para GOOGLE_SEARCH sem fonte real de volume de busca/CPC: sempre
+    # contem "REQUIRES_KEYWORD_DATA" (imposto deterministicamente, nunca
+    # confiado ao LLM sozinho -- ver `core/campaign_executor.py`).
+    keyword_requirements: list[str] = field(default_factory=list)
+    tracking_requirements: list[str] = field(default_factory=list)
+
+    # {"currency", "daily", "total", "source", "status"} -- "status" e
+    # REQUIRES_BUDGET quando nao informado pela usuaria, PROVIDED quando
+    # extraido deterministicamente da propria mensagem (nunca via LLM).
+    budget: dict = field(default_factory=lambda: {
+        "currency": None, "daily": None, "total": None,
+        "source": None, "status": "REQUIRES_BUDGET",
+    })
+    schedule: str | None = None
+    experiments: list[str] = field(default_factory=list)
+    risks: list[str] = field(default_factory=list)
+    evidence_summary: list[str] = field(default_factory=list)
+    missing_data: list[str] = field(default_factory=list)
+    approval_required: list[str] = field(default_factory=list)
+
+    # SEMPRE "EXTERNAL_EXECUTION_DISABLED" nesta fase -- nao existe conector
+    # real conectado (ver `core/campaign_platform_adapter.py`).
+    execution_mode: str = "EXTERNAL_EXECUTION_DISABLED"
+    # Nunca muda nesta fase -- nenhuma chamada externa acontece.
+    external_execution_status: str = "NOT_EXECUTED"
+
+    generated_by: str | None = None
+
+    def esta_aprovado(self) -> bool:
+        """SOMENTE `status == "APPROVED"` -- mesma regra do TrafficPlan.
+        `READY_FOR_APPROVAL` NUNCA conta como aprovado. IMPORTANTE: mesmo
+        `esta_aprovado() == True` significa SOMENTE 'aprovada como
+        ESPECIFICACAO' -- nunca autoriza nenhuma execucao externa (ver
+        `execution_mode`, que permanece `EXTERNAL_EXECUTION_DISABLED`)."""
+        return self.status == "APPROVED"
+
+
+# Fonte de um PerformanceSnapshot (Fase 6). REAL/IMPORTED sao utilizaveis
+# para diagnostico; SIMULATED e SOMENTE para testes -- nunca apresentado
+# como se fosse dado real, e nunca misturado com um snapshot REAL/IMPORTED
+# no mesmo diagnostico.
+PERFORMANCE_SNAPSHOT_FONTES = frozenset({"REAL", "SIMULATED", "IMPORTED"})
+
+
+@dataclass
+class PerformanceSnapshot:
+    """
+    Snapshot normalizado de metricas de UMA campanha, em UM periodo (Fase 6
+    -- Performance Agent, fundacao). NUNCA inventado -- campos ausentes
+    ficam `None` (o Performance Agent formata como `NOT_AVAILABLE` na
+    exibicao, nunca como zero/vazio silencioso).
+    """
+
+    platform: str | None = None
+    campaign_id: str | None = None
+    date_range: str | None = None
+    spend: str | None = None
+    impressions: str | None = None
+    reach: str | None = None
+    clicks: str | None = None
+    ctr: str | None = None
+    cpc: str | None = None
+    cpm: str | None = None
+    leads: str | None = None
+    purchases: str | None = None
+    revenue: str | None = None
+    cpl: str | None = None
+    cpa: str | None = None
+    cvr: str | None = None
+    roas: str | None = None
+    # REAL | SIMULATED | IMPORTED -- nunca ambiguo.
+    source: str = "IMPORTED"
+    collected_at: str = field(default_factory=_agora)
+
+
 @dataclass
 class ProjectBrain:
     identidade: Identidade
@@ -476,6 +607,8 @@ class ProjectBrain:
     business_plan: BusinessPlan | None = None
     production_plan: ProductionPlan | None = None
     traffic_plan: TrafficPlan | None = None
+    campaign_spec: CampaignSpec | None = None
+    performance_snapshots: list[PerformanceSnapshot] = field(default_factory=list)
     artifact_manifest: dict | None = None
     brand: Brand = field(default_factory=Brand)
     assets: Assets = field(default_factory=Assets)
@@ -495,6 +628,7 @@ class ProjectBrain:
         business_plan_dict = d.get("business_plan")
         production_plan_dict = d.get("production_plan")
         traffic_plan_dict = d.get("traffic_plan")
+        campaign_spec_dict = d.get("campaign_spec")
         return cls(
             identidade=Identidade(**d["identidade"]),
             origem=Origem(**d.get("origem", {})),
@@ -506,6 +640,8 @@ class ProjectBrain:
             business_plan=BusinessPlan(**business_plan_dict) if business_plan_dict else None,
             production_plan=ProductionPlan(**production_plan_dict) if production_plan_dict else None,
             traffic_plan=TrafficPlan(**traffic_plan_dict) if traffic_plan_dict else None,
+            campaign_spec=CampaignSpec(**campaign_spec_dict) if campaign_spec_dict else None,
+            performance_snapshots=[PerformanceSnapshot(**s) for s in d.get("performance_snapshots", [])],
             artifact_manifest=d.get("artifact_manifest"),
             brand=Brand(**d.get("brand", {})),
             assets=Assets(**d.get("assets", {})),
@@ -681,3 +817,82 @@ class UserFocusStore:
                     return None
                 return dados.get("project_id")
         return None
+
+
+# ---------------------------------------------------------------------------
+# Aprovacao pendente por sessao (Fase 6 -- correcao estrutural de bug real)
+# ---------------------------------------------------------------------------
+#
+# Bug real corrigido: uma aprovacao curta ("Aprovado") nao tinha como saber
+# A QUAL artefato (TrafficPlan? CampaignSpec?) ela se referia -- o
+# AgentOrchestrator nao tinha nenhuma interceptacao deterministica pra
+# "Aprovado" sozinho fora do mecanismo de continuidade do Product Architect
+# (Fase 3, baseado em `last_agents`, em memoria, nao persistido), entao a
+# mensagem caia no assistente generico. `PendingApprovalStore` persiste QUAL
+# aprovacao esta pendente, POR SESSAO -- reaproveitando a MESMA
+# infraestrutura do Project Brain/UserFocusStore (nenhum banco paralelo):
+# cada pendencia vira um `KnowledgeItem` com `type="pending_approval"`,
+# guardado sob uma "project key" pseudo `__pending_approval__:<session>`
+# (nunca colide com um `project_id` real).
+_PENDING_APPROVAL_TYPE = "pending_approval"
+
+
+def _pending_approval_pseudo_project(session: str) -> str:
+    return f"__pending_approval__:{session}"
+
+
+class PendingApprovalStore:
+    """Persiste/recupera QUAL aprovacao esta pendente (project_id +
+    artifact_type + action), POR sessao -- nunca deixa uma aprovacao curta
+    ("Aprovado") ser aplicada por adivinhacao. Usado por
+    `core/approval_router.py` (Fase 6)."""
+
+    def __init__(self, project_memory) -> None:
+        self._pm = project_memory
+
+    @staticmethod
+    def _item_id(session: str) -> str:
+        return f"pending_approval:{session}"
+
+    def set_pending(self, session: str, project_id: str, artifact_type: str, action: str = "APPROVE") -> None:
+        if not session:
+            return  # sem sessao -- nao persiste as cegas (mesmo principio do UserFocusStore)
+        payload = json.dumps({
+            "project_id": project_id,
+            "artifact_type": artifact_type,
+            "action": action,
+            "created_at": _agora(),
+        }, ensure_ascii=False)
+        item = KnowledgeItem(
+            id=self._item_id(session),
+            type=_PENDING_APPROVAL_TYPE,
+            title=f"pending_approval:{session}",
+            content=payload,
+            tags=[session],
+        )
+        self._pm.backend.remember_project(_pending_approval_pseudo_project(session), item)
+
+    def get_pending(self, session: str) -> dict | None:
+        if not session:
+            return None
+        for item in self._pm.recall(_pending_approval_pseudo_project(session)):
+            if item.type == _PENDING_APPROVAL_TYPE:
+                try:
+                    return json.loads(item.content)
+                except json.JSONDecodeError:
+                    return None
+        return None
+
+    def clear_pending(self, session: str) -> None:
+        """Sobrescreve com `null` -- mesma "gaveta" (upsert), nunca deixa
+        uma pendencia ja consumida disponivel pra reuso."""
+        if not session:
+            return
+        item = KnowledgeItem(
+            id=self._item_id(session),
+            type=_PENDING_APPROVAL_TYPE,
+            title=f"pending_approval:{session}",
+            content=json.dumps(None),
+            tags=[session],
+        )
+        self._pm.backend.remember_project(_pending_approval_pseudo_project(session), item)

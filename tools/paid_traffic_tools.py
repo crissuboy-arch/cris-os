@@ -300,7 +300,32 @@ def _obter_registry() -> ToolRegistry:
     return _registry_cache
 
 
-def _aprovar(brain: ProjectBrain) -> str:
+def _get_pending_approval_store():
+    """Reaproveita a MESMA `ProjectMemory` do `get_project_brain_store()`
+    DESTE modulo -- nunca a de `tools.opportunity_tools` diretamente. Isso
+    garante que testes que trocam `get_project_brain_store` (monkeypatch,
+    padrao ja usado desde a Fase 5) tambem afetam onde a pendencia de
+    aprovacao e lida/escrita, sem precisar de um segundo patch nem arriscar
+    usar o banco de producao real durante testes."""
+    from memory.project_brain import PendingApprovalStore
+
+    return PendingApprovalStore(get_project_brain_store().project_memory)
+
+
+def _sincronizar_pendencia_aprovacao(session: str, project_id: str, tp: TrafficPlan) -> None:
+    """
+    Correção estrutural (Fase 6): sempre que um TrafficPlan chega/permanece
+    em READY_FOR_APPROVAL, registra deterministicamente que a próxima
+    aprovação contextual válida desta sessão se refere ao TRAFFIC_PLAN deste
+    projeto -- é isso que permite `agents/orchestrator.py` resolver um
+    "Aprovado" curto sem adivinhar a qual artefato ele se refere (ver
+    `core/approval_router.py`).
+    """
+    if tp.status == "READY_FOR_APPROVAL":
+        _get_pending_approval_store().set_pending(session, project_id, "TRAFFIC_PLAN", "APPROVE")
+
+
+def _aprovar(brain: ProjectBrain, session: str = "") -> str:
     store = get_project_brain_store()
     tp = brain.traffic_plan
     if not tp or tp.status != "READY_FOR_APPROVAL":
@@ -311,6 +336,7 @@ def _aprovar(brain: ProjectBrain) -> str:
     tp.status = "APPROVED"
     brain.registrar_aprovacao("TRAFFIC_PLAN_APPROVED")
     store.save(brain)
+    _get_pending_approval_store().clear_pending(session)
     return (
         "✅ Plano de tráfego aprovado.\n\n"
         "Nenhuma conta de anúncio foi conectada, nenhuma campanha foi criada "
@@ -320,7 +346,7 @@ def _aprovar(brain: ProjectBrain) -> str:
     )
 
 
-def _rejeitar(brain: ProjectBrain) -> str:
+def _rejeitar(brain: ProjectBrain, session: str = "") -> str:
     store = get_project_brain_store()
     tp = brain.traffic_plan
     if not tp:
@@ -328,6 +354,7 @@ def _rejeitar(brain: ProjectBrain) -> str:
     tp.status = "REJECTED"
     brain.registrar_aprovacao("TRAFFIC_PLAN_REJECTED")
     store.save(brain)
+    _get_pending_approval_store().clear_pending(session)
     return (
         "Entendido, plano de tráfego rejeitado. Peça um novo plano quando "
         f"quiser revisar.\n\nProjeto: {brain.project_id}"
@@ -349,9 +376,9 @@ def gerenciar_trafego(entrada: str, session: str = "") -> str:
     tp = brain.traffic_plan
 
     if tp and _contains_any(texto, _PALAVRAS_APROVACAO, _FRASES_APROVACAO):
-        return _aprovar(brain)
+        return _aprovar(brain, session)
     if tp and _contains_any(texto, _PALAVRAS_REJEICAO, _FRASES_REJEICAO):
-        return _rejeitar(brain)
+        return _rejeitar(brain, session)
 
     if _contains_any(texto, frozenset(), _FRASES_STATUS):
         if not tp:
@@ -364,6 +391,7 @@ def gerenciar_trafego(entrada: str, session: str = "") -> str:
                 f"Ainda não há plano de tráfego para este projeto -- peça "
                 f'"crie o plano de tráfego" primeiro.\n\nProjeto: {brain.project_id}'
             )
+        _sincronizar_pendencia_aprovacao(session, brain.project_id, tp)
         return _formatar_plano_trafego(brain, tp)  # cache -- zero custo novo
 
     if _contains_any(texto, frozenset(), _FRASES_REVISAR):
@@ -372,6 +400,7 @@ def gerenciar_trafego(entrada: str, session: str = "") -> str:
         brain.traffic_plan = novo_tp
         brain.registrar_run("paid_traffic_architect", f"Revisou plano de trafego (v{novo_tp.version}, status {novo_tp.status})")
         store.save(brain)
+        _sincronizar_pendencia_aprovacao(session, brain.project_id, novo_tp)
         return _formatar_plano_trafego(brain, novo_tp)
 
     # Default: CREATE_TRAFFIC_PLAN -- se ja existe um plano REAL (gerado com
@@ -389,6 +418,7 @@ def gerenciar_trafego(entrada: str, session: str = "") -> str:
     # NEEDS_INFORMATION sempre reavalia (barato); so READY_FOR_APPROVAL/
     # APPROVED/REJECTED sao tratados como cache real.
     if tp and tp.status != "NEEDS_INFORMATION":
+        _sincronizar_pendencia_aprovacao(session, brain.project_id, tp)
         return _formatar_plano_trafego(brain, tp)
 
     store = get_project_brain_store()
@@ -400,6 +430,7 @@ def gerenciar_trafego(entrada: str, session: str = "") -> str:
     brain.traffic_plan = novo_tp
     brain.registrar_run("paid_traffic_architect", f"Criou plano de trafego (status {novo_tp.status})")
     store.save(brain)
+    _sincronizar_pendencia_aprovacao(session, brain.project_id, novo_tp)
     return _formatar_plano_trafego(brain, novo_tp)
 
 

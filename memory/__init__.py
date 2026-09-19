@@ -18,6 +18,9 @@ from .layers import (  # noqa: F401
 )
 from .project_brain import (  # noqa: F401
     BusinessPlan,
+    CampaignSpec,
+    PendingApprovalStore,
+    PerformanceSnapshot,
     ProductionPlan,
     ProjectBrain,
     ProjectBrainStore,
