@@ -222,6 +222,15 @@ _EXECUTION_ENGINE_FRASES = (
     "execution handoff", "handoff da execução", "handoff da execucao",
 )
 
+# Market Intelligence (Fase 9) e checado ANTES do product_architect (mesmo
+# motivo dos demais). "inteligencia de mercado deste PRODUTO" conteria
+# "produto".
+_MARKET_INTELLIGENCE_FRASES = (
+    "inteligência de mercado", "inteligencia de mercado",
+    "market intelligence", "handoffs recebidos", "handoffs de inteligência",
+    "handoffs de inteligencia",
+)
+
 
 def _model_name(llm: object) -> str:
     """Extrai o nome do modelo do provedor LLM."""
@@ -487,6 +496,15 @@ class AgentOrchestrator:
             )
             return self.agents["execution_engine"]
 
+        # 2.44) Interceptacao deterministica do Market Intelligence (Fase 9),
+        #       checada ANTES do product_architect ("produto").
+        if "market_intelligence" in self.agents and self._eh_comando_market_intelligence(texto):
+            logger.info(
+                "=== [ORCHESTRATOR] Interceptacao deterministica: 'market_intelligence' "
+                "(sem passar pelo LLM/Ollama) ===",
+            )
+            return self.agents["market_intelligence"]
+
         # 2.5) Interceptacao deterministica do Product Architect (Fase 3),
         #      checada ANTES do opportunity_analyst -- "pegue uma das minhas
         #      melhores oportunidades e me diga que produto criar" nao pode
@@ -639,6 +657,12 @@ class AgentOrchestrator:
         return any(f in texto_lower for f in _EXECUTION_ENGINE_FRASES)
 
     @staticmethod
+    def _eh_comando_market_intelligence(texto: str) -> bool:
+        """Detecta comandos do Market Intelligence por frase (sem LLM)."""
+        texto_lower = texto.lower()
+        return any(f in texto_lower for f in _MARKET_INTELLIGENCE_FRASES)
+
+    @staticmethod
     def _eh_comando_product_architect(texto: str) -> bool:
         """Detecta comandos do Product Architect por palavra-chave (sem LLM)."""
         palavras = set(texto.lower().split())
@@ -784,6 +808,7 @@ class AgentOrchestrator:
             *[(frase, "campaign_executor") for frase in _CAMPAIGN_EXECUTOR_FRASES],
             *[(frase, "performance_agent") for frase in _PERFORMANCE_AGENT_FRASES],
             *[(frase, "execution_engine") for frase in _EXECUTION_ENGINE_FRASES],
+            *[(frase, "market_intelligence") for frase in _MARKET_INTELLIGENCE_FRASES],
         ]
 
         for keywords, agent_name in regras:
@@ -849,6 +874,10 @@ class AgentOrchestrator:
             "execução": "execution_engine",
             "execution": "execution_engine",
             "engine": "execution_engine",
+            "intelligence": "market_intelligence",
+            "inteligencia": "market_intelligence",
+            "inteligência": "market_intelligence",
+            "scalaflow_intelligence": "market_intelligence",
         }
         n = nome.strip().lower().replace("-", "_")
         return aliases.get(n, n)

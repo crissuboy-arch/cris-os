@@ -35,6 +35,7 @@ AGENT_MODULES = [
     "agents.campaign_executor",
     "agents.performance_agent",
     "agents.execution_engine",
+    "agents.market_intelligence",
 ]
 GENERAL_MODULE = "agents.geral"
 

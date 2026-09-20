@@ -19,7 +19,10 @@ from .layers import (  # noqa: F401
 from .project_brain import (  # noqa: F401
     BusinessPlan,
     CampaignSpec,
+    Evidence,
     ExecutionPlan,
+    IntelligenceHandoffStore,
+    MarketIntelligenceHandoff,
     PendingApprovalStore,
     PerformanceSnapshot,
     ProductionPlan,

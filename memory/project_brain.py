@@ -822,6 +822,121 @@ class ExecutionPlan:
         }
 
 
+def novo_handoff_id() -> str:
+    return "handoff_" + uuid.uuid4().hex[:12]
+
+
+# Vocabulario FECHADO de "verification before trust" (Fase 9) -- toda
+# evidencia/afirmacao vinda do ScalaFlow precisa ser classificada, nunca
+# aceita como fato so porque foi afirmada.
+EVIDENCE_TIPOS_VALIDOS = frozenset({"OBSERVED", "DERIVED", "INFERRED", "UNKNOWN"})
+CONFIDENCE_NIVEIS_VALIDOS = frozenset({"LOW", "MEDIUM", "HIGH", "UNKNOWN"})
+
+# Estados de um MarketIntelligenceHandoff (Fase 9). RECEIVED e transitorio
+# (antes da validacao); todo handoff processado termina em um dos outros --
+# NUNCA silenciosamente ignorado.
+MARKET_INTELLIGENCE_ESTADOS_VALIDOS = frozenset({
+    "RECEIVED", "VALIDATED", "REJECTED", "DUPLICATE", "PERSISTED", "NEEDS_REVIEW",
+})
+
+SCHEMA_VERSIONS_SUPORTADAS = frozenset({"1.0"})
+
+
+@dataclass
+class Evidence:
+    """
+    Uma evidencia RASTREAVEL (Fase 9) -- nunca uma afirmacao solta.
+    `evidence_type` classifica o QUANTO essa evidencia pode ser confiada:
+    OBSERVED (visto diretamente na fonte), DERIVED (calculado a partir de
+    evidencia real), INFERRED (conclusao de um modelo/agente -- a mais
+    fraca), UNKNOWN (sem evidencia suficiente pra classificar). NUNCA
+    "FACT"/"TRUE" -- esse vocabulario nao existe de proposito.
+    """
+
+    evidence_id: str = field(default_factory=lambda: "ev_" + uuid.uuid4().hex[:8])
+    source_type: str | None = None  # ex.: "AD_LIBRARY", "TIKTOK", "GOOGLE_TRENDS"
+    source_name: str | None = None
+    source_url: str | None = None
+    captured_at: str | None = None
+    raw_reference: str | None = None
+    metric_name: str | None = None
+    metric_value: str | None = None
+    metric_unit: str | None = None
+    evidence_type: str = "UNKNOWN"
+    confidence_level: str = "UNKNOWN"
+
+
+@dataclass
+class MarketIntelligenceHandoff:
+    """
+    Contrato CANONICO de entrada de inteligencia de mercado vinda do
+    ScalaFlow (Fase 9) -- fronteira de integracao explicita entre os dois
+    sistemas. NUNCA e tratado como fato confiavel automaticamente: todo
+    campo de evidencia/confianca precisa vir classificado (ver `Evidence`,
+    `confidence_level`), e um handoff so e persistido depois de passar por
+    validacao + deduplicacao + resolucao de projeto (ver
+    `core/market_intelligence.py`).
+
+    Campos ausentes na fonte ficam `None`/lista vazia -- NUNCA inventados
+    pra preencher o contrato.
+    """
+
+    handoff_id: str = field(default_factory=novo_handoff_id)
+    schema_version: str = "1.0"
+    source_system: str | None = None  # ex.: "SCALAFLOW"
+    source_module: str | None = None  # ex.: "tiktok_miner", "ad_library_miner"
+    created_at: str | None = None  # quando a fonte gerou o handoff
+    received_at: str = field(default_factory=_agora)  # quando o CRIS OS recebeu
+
+    project_id: str | None = None
+    external_project_ref: str | None = None
+
+    opportunity_id: str | None = None
+    title: str | None = None
+    market: str | None = None
+    niche: str | None = None
+    subniche: str | None = None
+    country: str | None = None
+    language: str | None = None
+    description: str | None = None
+
+    trend_signals: dict = field(default_factory=dict)
+    demand_signals: dict = field(default_factory=dict)
+    competition_signals: dict = field(default_factory=dict)
+    ad_signals: dict = field(default_factory=dict)
+    social_signals: dict = field(default_factory=dict)
+    search_signals: dict = field(default_factory=dict)
+
+    product_name: str | None = None
+    offer_type: str | None = None
+    price: str | None = None
+    currency: str | None = None
+    commission: str | None = None
+    platform: str | None = None
+    sales_page_url: str | None = None
+
+    competitors: list[str] = field(default_factory=list)
+    competitor_urls: list[str] = field(default_factory=list)
+    observed_offers: list[str] = field(default_factory=list)
+
+    evidence: list[dict] = field(default_factory=list)  # cada item = Evidence serializada (dict)
+
+    confidence_score: float | None = None
+    confidence_level: str = "UNKNOWN"
+    confidence_reason: str | None = None
+
+    opportunity_score: float | None = None
+    score_components: dict = field(default_factory=dict)
+    scoring_version: str | None = None
+
+    tags: list[str] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+
+    status: str = "RECEIVED"
+    rejection_reason: str | None = None
+
+
 @dataclass
 class ProjectBrain:
     identidade: Identidade
@@ -837,6 +952,7 @@ class ProjectBrain:
     campaign_spec: CampaignSpec | None = None
     performance_snapshots: list[PerformanceSnapshot] = field(default_factory=list)
     execution_plan: ExecutionPlan | None = None
+    market_intelligence: list[MarketIntelligenceHandoff] = field(default_factory=list)
     artifact_manifest: dict | None = None
     brand: Brand = field(default_factory=Brand)
     assets: Assets = field(default_factory=Assets)
@@ -876,6 +992,7 @@ class ProjectBrain:
             campaign_spec=CampaignSpec(**campaign_spec_dict) if campaign_spec_dict else None,
             performance_snapshots=[PerformanceSnapshot(**s) for s in d.get("performance_snapshots", [])],
             execution_plan=execution_plan,
+            market_intelligence=[MarketIntelligenceHandoff(**h) for h in d.get("market_intelligence", [])],
             artifact_manifest=d.get("artifact_manifest"),
             brand=Brand(**d.get("brand", {})),
             assets=Assets(**d.get("assets", {})),
@@ -1138,3 +1255,66 @@ class PendingApprovalStore:
             tags=[session],
         )
         self._pm.backend.remember_project(_pending_approval_pseudo_project(session), item)
+
+
+# ---------------------------------------------------------------------------
+# Indice global de handoffs de inteligencia de mercado (Fase 9 -- idempotencia)
+# ---------------------------------------------------------------------------
+#
+# Deduplicacao PRECISA funcionar mesmo ANTES de saber a qual projeto um
+# handoff pertence (um handoff duplicado enviado sem `project_id` ainda
+# precisa ser reconhecido como duplicata). Por isso este indice e chaveado
+# GLOBALMENTE por `handoff_id` -- nao por sessao nem por projeto -- mesma
+# infraestrutura (`ProjectMemory`/`KnowledgeItem`), mesma "gaveta" pseudo-
+# projeto, nenhum banco paralelo.
+_INTELLIGENCE_HANDOFF_TYPE = "intelligence_handoff_index"
+
+
+def _intelligence_handoff_pseudo_project(handoff_id: str) -> str:
+    return f"__intelligence_handoff__:{handoff_id}"
+
+
+class IntelligenceHandoffStore:
+    """Indice GLOBAL (por `handoff_id`, nao por sessao/projeto) de handoffs
+    de inteligencia de mercado ja processados -- usado por
+    `core/market_intelligence.py` para deduplicacao/idempotencia e para
+    `get_intelligence(handoff_id)`."""
+
+    def __init__(self, project_memory) -> None:
+        self._pm = project_memory
+
+    @staticmethod
+    def _item_id(handoff_id: str) -> str:
+        return f"intelligence_handoff:{handoff_id}"
+
+    def registrar(self, handoff_id: str, project_id: str, status: str) -> None:
+        if not handoff_id:
+            return
+        payload = json.dumps({
+            "handoff_id": handoff_id,
+            "project_id": project_id,
+            "status": status,
+            "registered_at": _agora(),
+        }, ensure_ascii=False)
+        item = KnowledgeItem(
+            id=self._item_id(handoff_id),
+            type=_INTELLIGENCE_HANDOFF_TYPE,
+            title=f"intelligence_handoff:{handoff_id}",
+            content=payload,
+            tags=[handoff_id],
+        )
+        self._pm.backend.remember_project(_intelligence_handoff_pseudo_project(handoff_id), item)
+
+    def buscar(self, handoff_id: str) -> dict | None:
+        if not handoff_id:
+            return None
+        for item in self._pm.recall(_intelligence_handoff_pseudo_project(handoff_id)):
+            if item.type == _INTELLIGENCE_HANDOFF_TYPE:
+                try:
+                    return json.loads(item.content)
+                except json.JSONDecodeError:
+                    return None
+        return None
+
+    def ja_processado(self, handoff_id: str) -> bool:
+        return self.buscar(handoff_id) is not None
