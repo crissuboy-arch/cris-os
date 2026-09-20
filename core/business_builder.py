@@ -77,8 +77,9 @@ def _resumir_contexto(brain: ProjectBrain) -> dict:
         "problema": bp.problem,
         "nicho": bp.niche,
         "pais": bp.country,
-        "mercado": bp.market,
+        "mercado": bp.market or brain.mercado.market,
         "monetizacao_sugerida": bp.monetization_options,
+        "diferenciacao_ja_identificada": bp.differentiation,
         # Nomeado "DO_CONCORRENTE" (Fase 4 -- correcao pos-teste real): este
         # texto e do anuncio de OUTRA empresa (produto que JA EXISTE), so
         # EVIDENCIA DE MERCADO -- nunca fato/copy do produto novo. Ver
@@ -106,6 +107,17 @@ def _prompt(contexto: dict) -> list[dict]:
         "prometa resultado irreal ou nao verificavel.\n"
         "4. Quando faltar evidencia para uma secao, preencha `missing_evidence` "
         "em vez de inventar.\n"
+        "4b. NUNCA invente numero de ECONOMIA (ticket, margem, CAC, break-even) "
+        "como fato -- todo campo `estimated_*` e SEMPRE uma estimativa/hipotese "
+        "de planejamento, nunca um dado verificado (nao ha trafego pago "
+        "rodando ainda). Cada item de `revenue_scenarios` DEVE vir com "
+        "`\"type\": \"PLANNING_ASSUMPTION\"` explicito.\n"
+        "4c. `confidence_score` ('baixo'|'medio'|'alto') reflete SOMENTE a "
+        "forca das evidencias reais ja coletadas -- nunca otimismo sem base.\n"
+        "4d. `required_assets`/`kpis` APENAS ESPECIFICAM o que sera necessario "
+        "(ex.: 'landing page com prova social', 'CAC') -- NUNCA produza o "
+        "ativo em si (nenhum ebook, post, carrossel, criativo, pagina "
+        "completa ou imagem deve ser gerado por voce).\n"
         "5. REGRA CRITICA -- NUNCA HERDE ALEGACOES DO CONCORRENTE COMO FATO "
         "DO PRODUTO NOVO: `headline_do_anuncio_DO_CONCORRENTE`/"
         "`copy_do_anuncio_DO_CONCORRENTE` sao de OUTRA empresa, um produto "
@@ -140,7 +152,20 @@ def _prompt(contexto: dict) -> list[dict]:
         '  "launch_strategy": "...",\n'
         '  "plan_30_days": [{"periodo": "dias 1-7", "acoes": ["..."]}],\n'
         '  "assumptions": ["..."], "missing_evidence": ["..."],\n'
-        '  "risks": ["..."], "dependencies": ["..."], "next_steps": ["..."]\n'
+        '  "risks": ["..."], "dependencies": ["..."], "next_steps": ["..."],\n'
+        '  "desired_outcome": "...", "subniche": "..." ou null,\n'
+        '  "offer_type": "...", "pricing_strategy": "...",\n'
+        '  "estimated_price_range": "..." ou null,\n'
+        '  "bonuses_strategy": "...", "guarantee_strategy": "...", "urgency_strategy": "...",\n'
+        '  "primary_channel": "..." ou null, "secondary_channels": ["..."],\n'
+        '  "sales_model": "...",\n'
+        '  "estimated_ticket": "..." ou null, "estimated_margin": "..." ou null,\n'
+        '  "estimated_cac_target": "..." ou null, "estimated_break_even": "..." ou null,\n'
+        '  "revenue_scenarios": [{"nome": "LOW|STANDARD|EXPANDED", "descricao": "...", "type": "PLANNING_ASSUMPTION"}],\n'
+        '  "competitors": ["..."], "differentiation": "...",\n'
+        '  "market_gaps": ["..."], "barriers": ["..."],\n'
+        '  "validation_requirements": ["..."], "confidence_score": "baixo|medio|alto",\n'
+        '  "required_assets": ["..."], "kpis": ["..."]\n'
         "}"
     )
     usuario = "Produto aprovado (dados reais):\n" + json.dumps(contexto, ensure_ascii=False, indent=2)
@@ -208,6 +233,39 @@ def _lista_dicts_limpa(v, campos_texto: tuple[str, ...]) -> list[dict]:
     return limpos
 
 
+_CONFIANCA_VALIDA = frozenset({"baixo", "medio", "alto"})
+_CENARIO_NOMES_VALIDOS = frozenset({"LOW", "STANDARD", "EXPANDED"})
+
+
+def _validar_confidence_score(v) -> str | None:
+    valor = str(v or "").strip().lower()
+    return valor if valor in _CONFIANCA_VALIDA else None
+
+
+def _validar_revenue_scenario(bruto: dict) -> dict | None:
+    if not isinstance(bruto, dict):
+        return None
+    nome = str(bruto.get("nome") or "").strip().upper()
+    if nome not in _CENARIO_NOMES_VALIDOS:
+        return None
+    return {
+        "nome": nome,
+        "descricao": _texto_limpo(bruto.get("descricao")),
+        # SEMPRE PLANNING_ASSUMPTION -- nunca confia no LLM pra marcar isso
+        # certo sozinho (mesmo principio de `_validar_budget_scenario` no
+        # Paid Traffic Architect, Fase 5).
+        "type": "PLANNING_ASSUMPTION",
+    }
+
+
+def _id_blueprint(brain: ProjectBrain) -> str:
+    """Referencia deterministica ao blueprint de origem -- ProductBlueprint
+    nao tem um id proprio separado do `project_id` (1:1 por projeto), entao
+    usa a mesma convencao de `ProjectBrainStore._item_id` (`brain:<id>`) pra
+    um identificador estavel e rastreavel, nunca um UUID novo sem sentido."""
+    return f"blueprint:{brain.project_id}"
+
+
 def _fallback_deterministico(brain: ProjectBrain) -> BusinessPlan:
     """Sem LLM disponivel: estrutura minima e HONESTA usando so os campos que
     ja existem no blueprint aprovado -- nunca finge uma analise de oferta que
@@ -215,11 +273,17 @@ def _fallback_deterministico(brain: ProjectBrain) -> BusinessPlan:
     bp = brain.blueprint
     return BusinessPlan(
         project_id=brain.project_id,
+        product_blueprint_id=_id_blueprint(brain),
+        opportunity_id=bp.opportunity_id,
+        name=bp.product_concept or brain.identidade.name,
+        market=bp.market or brain.mercado.market,
+        niche=bp.niche or brain.mercado.niche,
         business_model=bp.monetization_options[0] if bp.monetization_options else None,
         target_audience=bp.target_audience,
         problem=bp.problem,
         main_offer=bp.product_concept,
         monetization_format=", ".join(bp.monetization_options) or None,
+        differentiation=bp.differentiation,
         price=None,
         price_is_hypothesis=True,
         evidence=list(bp.evidence),
@@ -229,6 +293,11 @@ def _fallback_deterministico(brain: ProjectBrain) -> BusinessPlan:
             "aos campos ja existentes no Product Blueprint, sem estruturacao "
             "de oferta/funil/lancamento via IA.",
         ],
+        validation_requirements=[
+            "Estrategia de negocio ainda nao foi estruturada via IA -- peca "
+            "uma nova tentativa quando o OpenRouter estiver disponivel.",
+        ],
+        confidence_score=None,
         approval_status="DRAFT",
         generated_by="fallback_deterministico",
     )
@@ -258,8 +327,16 @@ def construir_plano_negocio(brain: ProjectBrain, llm=None) -> BusinessPlan:
         return _fallback_deterministico(brain)
 
     preco = _str_ou_none(dados.get("price"))
+    cenarios = [c for c in (_validar_revenue_scenario(c) for c in (dados.get("revenue_scenarios") or [])) if c]
     return BusinessPlan(
         project_id=brain.project_id,
+        product_blueprint_id=_id_blueprint(brain),
+        opportunity_id=brain.blueprint.opportunity_id,
+        name=brain.blueprint.product_concept or brain.identidade.name,
+        market=brain.blueprint.market or brain.mercado.market,
+        niche=brain.blueprint.niche or brain.mercado.niche,
+        subniche=_str_ou_none(dados.get("subniche")),
+        desired_outcome=_texto_limpo(dados.get("desired_outcome")),
         business_model=_texto_limpo(dados.get("business_model")),
         value_proposition=_texto_limpo(dados.get("value_proposition")),
         target_audience=_texto_limpo(dados.get("target_audience")) or brain.blueprint.target_audience,
@@ -297,6 +374,57 @@ def construir_plano_negocio(brain: ProjectBrain, llm=None) -> BusinessPlan:
         risks=_lista(dados.get("risks")) or list(brain.blueprint.risks),
         dependencies=_lista(dados.get("dependencies")),
         next_steps=_lista(dados.get("next_steps")),
+        offer_type=_str_ou_none(dados.get("offer_type")),
+        pricing_strategy=_texto_limpo(dados.get("pricing_strategy")),
+        estimated_price_range=_str_ou_none(dados.get("estimated_price_range")),
+        bonuses_strategy=_texto_limpo(dados.get("bonuses_strategy")),
+        guarantee_strategy=_texto_limpo(dados.get("guarantee_strategy")),
+        urgency_strategy=_texto_limpo(dados.get("urgency_strategy")),
+        primary_channel=_str_ou_none(dados.get("primary_channel")),
+        secondary_channels=_lista(dados.get("secondary_channels")),
+        sales_model=_texto_limpo(dados.get("sales_model")),
+        estimated_ticket=_str_ou_none(dados.get("estimated_ticket")),
+        estimated_margin=_str_ou_none(dados.get("estimated_margin")),
+        estimated_cac_target=_str_ou_none(dados.get("estimated_cac_target")),
+        estimated_break_even=_str_ou_none(dados.get("estimated_break_even")),
+        revenue_scenarios=cenarios,
+        competitors=_lista_limpa(dados.get("competitors")),
+        differentiation=_texto_limpo(dados.get("differentiation")) or brain.blueprint.differentiation,
+        market_gaps=_lista_limpa(dados.get("market_gaps")),
+        barriers=_lista_limpa(dados.get("barriers")),
+        validation_requirements=_lista(dados.get("validation_requirements")) or _lista(dados.get("missing_evidence")),
+        confidence_score=_validar_confidence_score(dados.get("confidence_score")),
+        required_assets=_lista_limpa(dados.get("required_assets")),
+        kpis=_lista(dados.get("kpis")),
         approval_status="READY_FOR_APPROVAL",
         generated_by=getattr(llm, "_provider_name", "llm"),
     )
+
+
+def gerar_handoff(brain: ProjectBrain) -> dict | None:
+    """
+    Handoff estruturado (Fase 7) -- contrato de DADOS puro para
+    fases/agentes futuros consumirem um BusinessPlan JA APROVADO. NUNCA
+    executa nenhuma acao (nao publica, nao produz ativo, nao chama nenhuma
+    API externa) -- so agrega o que ja existe no BusinessPlan.
+
+    Devolve `None` quando o BusinessPlan ainda nao esta `esta_aprovado()`
+    (o handoff so faz sentido para uma estrategia ja aprovada por decisao
+    humana explicita)."""
+    bp = brain.business_plan
+    if not bp or not bp.esta_aprovado():
+        return None
+    return {
+        "project_id": brain.project_id,
+        "business_plan_id": f"bizplan:{brain.project_id}:v{bp.version}",
+        "status": bp.approval_status,
+        "positioning": bp.positioning,
+        "target_audience": bp.target_audience,
+        "core_offer": bp.main_offer,
+        "pricing_strategy": bp.pricing_strategy or bp.price,
+        "acquisition_channels": list(bp.acquisition_channels),
+        "required_assets": list(bp.required_assets),
+        "kpis": list(bp.kpis),
+        "risks": list(bp.risks),
+        "assumptions": list(bp.assumptions),
+    }

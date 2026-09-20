@@ -102,16 +102,29 @@ _PRODUCT_ARCHITECT_CONTINUACAO_FRASES = (
 # de proposito NAO incluida como palavra solta (colide com _SCALAFLOW_KEYWORDS
 # -- "quais sao as ofertas hoje" continua indo pro scalaflow_intel), so como
 # parte de frases especificas.
-_BUSINESS_BUILDER_KEYWORDS = frozenset({"negocio", "negócio", "monetiz"})
+# Fase 7 -- ampliado para nao depender exclusivamente de palavras-chave
+# frageis: "businessplan" (termo tecnico usado diretamente), "posicionamento"
+# (campo especifico do BusinessPlan -- "qual seria o posicionamento deste
+# produto?" contem "produto", entao precisa ser capturado aqui, ANTES do
+# product_architect, para nao virar uma pergunta de formato de produto).
+_BUSINESS_BUILDER_KEYWORDS = frozenset({
+    "negocio", "negócio", "monetiz", "businessplan", "posicionamento",
+})
 _BUSINESS_BUILDER_FRASES = (
     "modelo de negocio", "modelo de negócio",
     "plano de negocio", "plano de negócio",
+    "business plan",
+    "estrategia de negocio", "estratégia de negócio",
+    "estrategia de monetizacao", "estratégia de monetização",
+    "analise o modelo de negocio", "analise o modelo de negócio",
     "monte a oferta", "montar a oferta", "estruture a oferta",
     "monte o modelo de negocio", "monte o modelo de negócio",
     "como vamos monetizar", "transforme em negocio", "transforme em negócio",
     "transforme esse produto em um negocio", "transforme esse produto em um negócio",
     "transforme o produto aprovado em um negocio", "transforme o produto aprovado em um negócio",
     "transforme esse produto aprovado em um negocio", "transforme esse produto aprovado em um negócio",
+    "transforme esta oportunidade em um plano de negocio",
+    "transforme esta oportunidade em um plano de negócio",
 )
 
 # Product Factory (Fase 4) tambem e checado ANTES do product_architect pelo

@@ -249,7 +249,7 @@ class ProductBlueprint:
 # PENDING_APPROVAL/APPROVED como o blueprint. Os estados existem desde ja
 # para quando uma fase futura precisar deles (ex.: liberar producao paga).
 BUSINESS_PLAN_ESTADOS_VALIDOS = frozenset({
-    "DRAFT", "READY_FOR_APPROVAL", "APPROVED", "REJECTED",
+    "DRAFT", "READY_FOR_REVIEW", "READY_FOR_APPROVAL", "APPROVED", "REJECTED",
 })
 
 
@@ -317,8 +317,68 @@ class BusinessPlan:
     dependencies: list[str] = field(default_factory=list)
     next_steps: list[str] = field(default_factory=list)
 
-    approval_status: str = "DRAFT"  # DRAFT | READY_FOR_APPROVAL | APPROVED | REJECTED
+    approval_status: str = "DRAFT"  # DRAFT | READY_FOR_REVIEW | READY_FOR_APPROVAL | APPROVED | REJECTED
     generated_by: str | None = None
+
+    # -----------------------------------------------------------------
+    # Fase 7 -- Business Builder (estrategia de negocio ampliada).
+    #
+    # Extensao ADITIVA e retrocompativel: nenhum campo/estado existente foi
+    # removido ou renomeado. Conceitos ja cobertos por um campo existente NAO
+    # ganham um segundo campo duplicado (core_problem->`problem`,
+    # unique_mechanism->`mechanism`, core_offer->`main_offer`,
+    # monetization_model->`monetization_format`, funnel_strategy->
+    # `funnel_structure`, recommended_next_actions->`next_steps`,
+    # status->`approval_status`) -- so os conceitos GENUINAMENTE novos pedidos
+    # pela Fase 7 ganham campo proprio.
+    # -----------------------------------------------------------------
+
+    # --- identificacao/handoff ---
+    opportunity_id: str | None = None  # referencia (mesma convencao do ProductBlueprint)
+    product_blueprint_id: str | None = None  # referencia explicita ao blueprint de origem
+    name: str | None = None
+    version: int = 1
+
+    # --- mercado (herdado do blueprint/oportunidade -- nao reinventa fonte) ---
+    market: str | None = None
+    niche: str | None = None
+    subniche: str | None = None
+    desired_outcome: str | None = None
+
+    # --- oferta ampliada (SEMPRE estrategia/hipotese, nunca preco/numero fato) ---
+    offer_type: str | None = None
+    pricing_strategy: str | None = None
+    estimated_price_range: str | None = None
+    bonuses_strategy: str | None = None
+    guarantee_strategy: str | None = None
+    urgency_strategy: str | None = None
+
+    # --- canais/modelo de venda ---
+    primary_channel: str | None = None
+    secondary_channels: list[str] = field(default_factory=list)
+    sales_model: str | None = None
+
+    # --- economia (SEMPRE estimativa -- nenhum numero e fato sem trafego real
+    # rodando; mesmo principio de `price`/`price_is_hypothesis` acima) ---
+    estimated_ticket: str | None = None
+    estimated_margin: str | None = None
+    estimated_cac_target: str | None = None
+    estimated_break_even: str | None = None
+    revenue_scenarios: list[dict] = field(default_factory=list)  # [{"nome","descricao","type":"PLANNING_ASSUMPTION"}]
+
+    # --- competicao ---
+    competitors: list[str] = field(default_factory=list)
+    differentiation: str | None = None
+    market_gaps: list[str] = field(default_factory=list)
+    barriers: list[str] = field(default_factory=list)
+
+    # --- validacao ampliada ---
+    validation_requirements: list[str] = field(default_factory=list)
+    confidence_score: str | None = None  # "baixo" | "medio" | "alto" -- nunca inventado sem base nas evidencias
+
+    # --- execucao futura (ESPECIFICA o que precisa existir -- nunca produz) ---
+    required_assets: list[str] = field(default_factory=list)
+    kpis: list[str] = field(default_factory=list)
 
     def esta_aprovado(self) -> bool:
         """True SOMENTE se `approval_status == "APPROVED"` -- diferente de

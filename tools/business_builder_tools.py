@@ -19,7 +19,7 @@ from __future__ import annotations
 import logging
 
 from config.settings import settings
-from core.business_builder import blueprint_aprovado, construir_plano_negocio
+from core.business_builder import blueprint_aprovado, construir_plano_negocio, gerar_handoff
 from memory.project_brain import BusinessPlan, ProjectBrain
 from tools.base import Tool
 from tools.opportunity_tools import get_foco_atual, get_project_brain_store
@@ -41,6 +41,7 @@ _MENSAGEM_NAO_APROVADO = (
 
 _PALAVRAS_MOSTRAR = frozenset({"mostre", "mostra", "exibir", "ver", "veja"})
 _FRASES_MOSTRAR = ("plano de negocio", "plano de negócio", "pendencias", "pendências")
+_FRASES_HANDOFF = ("handoff", "gere o handoff", "handoff do plano de negocio", "handoff do plano de negócio")
 
 
 def _headers_ok() -> bool:
@@ -81,6 +82,58 @@ def _contains_any(texto: str, palavras: frozenset[str], frases: tuple = ()) -> b
     if tokens & palavras:
         return True
     return any(f in texto for f in frases)
+
+
+def _get_pending_approval_store():
+    """Reaproveita a MESMA `ProjectMemory` do `get_project_brain_store()`
+    DESTE modulo -- mesmo principio de `tools/paid_traffic_tools.py`/
+    `tools/campaign_executor_tools.py` (Fase 6): nunca usar o banco de
+    producao real durante testes que trocam `get_project_brain_store`."""
+    from memory.project_brain import PendingApprovalStore
+
+    return PendingApprovalStore(get_project_brain_store().project_memory)
+
+
+def _sincronizar_pendencia_aprovacao(session: str, project_id: str, plano: BusinessPlan) -> None:
+    """Correcao estrutural (Fase 7, mesmo padrao da Fase 6): sempre que um
+    BusinessPlan chega/permanece em READY_FOR_APPROVAL, registra
+    deterministicamente que a proxima aprovacao contextual valida desta
+    sessao se refere ao BUSINESS_PLAN deste projeto -- e isso que permite
+    `agents/orchestrator.py` (via `core/approval_router.py`) resolver um
+    "Aprovado" curto sem adivinhar a qual artefato ele se refere. O
+    Business Builder NAO tem (nem precisa ter) um `_aprovar`/`_rejeitar`
+    proprio -- o Approval Router central e o UNICO caminho de aprovacao."""
+    if plano.approval_status == "READY_FOR_APPROVAL":
+        _get_pending_approval_store().set_pending(session, project_id, "BUSINESS_PLAN", "APPROVE")
+
+
+def _formatar_handoff(handoff: dict) -> str:
+    linhas = [
+        "📦 HANDOFF DO PLANO DE NEGÓCIO (contrato de dados -- nenhuma ação executada)",
+        "",
+        f"project_id: {handoff['project_id']}",
+        f"business_plan_id: {handoff['business_plan_id']}",
+        f"status: {handoff['status']}",
+    ]
+    if handoff.get("positioning"):
+        linhas.append(f"positioning: {handoff['positioning']}")
+    if handoff.get("target_audience"):
+        linhas.append(f"target_audience: {handoff['target_audience']}")
+    if handoff.get("core_offer"):
+        linhas.append(f"core_offer: {handoff['core_offer']}")
+    if handoff.get("pricing_strategy"):
+        linhas.append(f"pricing_strategy: {handoff['pricing_strategy']}")
+    if handoff.get("acquisition_channels"):
+        linhas.append("acquisition_channels: " + ", ".join(handoff["acquisition_channels"]))
+    if handoff.get("required_assets"):
+        linhas.append("required_assets: " + "; ".join(handoff["required_assets"]))
+    if handoff.get("kpis"):
+        linhas.append("kpis: " + ", ".join(handoff["kpis"]))
+    if handoff.get("risks"):
+        linhas.append("risks: " + "; ".join(handoff["risks"]))
+    if handoff.get("assumptions"):
+        linhas.append("assumptions: " + "; ".join(handoff["assumptions"]))
+    return "\n".join(linhas)
 
 
 def _resolver_projeto(session: str) -> ProjectBrain | str:
@@ -209,6 +262,9 @@ def _formatar_plano_negocio(brain: ProjectBrain, bp: BusinessPlan) -> str:
         "Nenhuma venda, receita, CPA, ROAS, conversão ou demanda foi "
         "inventada -- números desse tipo só existirão com tráfego real rodando."
     )
+    if bp.approval_status == "READY_FOR_APPROVAL":
+        linhas.append("")
+        linhas.append('Responda "Aprovado" pra marcar este plano como aprovado (nenhum conteúdo/ativo é produzido automaticamente).')
     return "\n".join(linhas)
 
 
@@ -225,20 +281,33 @@ def gerenciar_negocio(entrada: str, session: str = "") -> str:
     if not blueprint_aprovado(brain):
         return _MENSAGEM_NAO_APROVADO
 
+    if _contains_any(texto, frozenset(), _FRASES_HANDOFF):
+        handoff = gerar_handoff(brain)
+        if not handoff:
+            status = brain.business_plan.approval_status if brain.business_plan else "nenhum plano ainda"
+            return (
+                "Ainda não há um plano de negócio aprovado para gerar o "
+                f"handoff (status atual: {status})."
+            )
+        return _formatar_handoff(handoff)
+
     if brain.business_plan and _contains_any(texto, _PALAVRAS_MOSTRAR, _FRASES_MOSTRAR):
         # Ja calculado -- reexibe SEM gastar de novo no OpenRouter (cost-first).
+        _sincronizar_pendencia_aprovacao(session, brain.project_id, brain.business_plan)
         return _formatar_plano_negocio(brain, brain.business_plan)
 
     store = get_project_brain_store()
     if brain.business_plan and "monte" not in texto and "montar" not in texto and "refaz" not in texto:
         # Pergunta generica sobre negocio/oferta/monetizacao com plano ja
         # existente: reaproveita em vez de gerar de novo.
+        _sincronizar_pendencia_aprovacao(session, brain.project_id, brain.business_plan)
         return _formatar_plano_negocio(brain, brain.business_plan)
 
     plano = construir_plano_negocio(brain, llm=_get_llm_economico())
     brain.business_plan = plano
     brain.registrar_run("business_builder", f"Montou plano de negócio para '{brain.blueprint.recommended_product_type}'")
     store.save(brain)
+    _sincronizar_pendencia_aprovacao(session, brain.project_id, plano)
     return _formatar_plano_negocio(brain, plano)
 
 
@@ -261,6 +330,14 @@ def get_tools() -> list[Tool]:
                 "transforme o produto aprovado em um negócio",
                 "transforme esse produto aprovado em um negocio",
                 "transforme esse produto aprovado em um negócio",
+                # Fase 7 -- roteamento ampliado (nao depender exclusivamente
+                # das frases acima, ja fragil por natureza).
+                "businessplan", "business plan",
+                "estrategia de negocio", "estratégia de negócio",
+                "estrategia de monetizacao", "estratégia de monetização",
+                "posicionamento",
+                "handoff",
+                *_FRASES_HANDOFF,
             ],
             gerenciar_negocio,
         ),

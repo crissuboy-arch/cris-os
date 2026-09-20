@@ -23,27 +23,47 @@ from __future__ import annotations
 
 from core.approval_gate import eh_aprovacao, eh_rejeicao
 
-# Escopo desta correção (Fase 6): SOMENTE os dois artefatos envolvidos no bug
-# real (TrafficPlan/CampaignSpec) são registrados como pendência por este
-# mecanismo -- Product Architect (Fase 3) continua usando seu próprio
-# mecanismo de continuidade, já funcional, sem alteração (ver
-# `agents/orchestrator.py:_resolver_aprovacao_contextual`, que
+# Escopo original (Fase 6): TrafficPlan/CampaignSpec foram os dois artefatos
+# do bug real que motivou este router -- Product Architect (Fase 3) continua
+# usando seu próprio mecanismo de continuidade, já funcional, sem alteração
+# (ver `agents/orchestrator.py:_resolver_aprovacao_contextual`, que
 # deliberadamente NÃO intercepta quando o último agente foi o
 # `product_architect` e a mensagem bate no padrão de continuidade dele).
+#
+# BUSINESS_PLAN (Fase 7) é o primeiro artefato NOVO a nascer já usando este
+# gate central -- diferente de Paid Traffic Architect/Campaign Executor
+# (que também mantêm um `_aprovar`/`_rejeitar` local próprio por
+# compatibilidade com chamadas diretas em testes), o Business Builder NÃO
+# ganhou um mecanismo de aprovação próprio: a ÚNICA forma de aprovar/
+# rejeitar um BusinessPlan é via este router (pedido explícito da Fase 7:
+# "Reutilizar o Approval Router central... NÃO criar outro sistema de
+# aprovação").
 _ARTEFATOS = {
     "TRAFFIC_PLAN": {
         "campo": "traffic_plan",
+        "campo_status": "status",
         "estado_pronto": "READY_FOR_APPROVAL",
         "estado_rejeitado": "REJECTED",
         "nome_legivel": "plano de tráfego",
     },
     "CAMPAIGN_SPEC": {
         "campo": "campaign_spec",
+        "campo_status": "status",
         "estado_pronto": "READY_FOR_APPROVAL",
         # CampaignSpec nao tem estado REJECTED no vocabulario (Fase 6) --
         # volta para NOT_STARTED (ver `memory/project_brain.py:CAMPAIGN_SPEC_ESTADOS_VALIDOS`).
         "estado_rejeitado": "NOT_STARTED",
         "nome_legivel": "especificação de campanha",
+    },
+    "BUSINESS_PLAN": {
+        "campo": "business_plan",
+        # BusinessPlan usa `approval_status`, NAO `status` (diferente de
+        # TrafficPlan/CampaignSpec) -- por isso o nome do campo de status e
+        # parametrizado por artefato, nunca hardcoded como `.status`.
+        "campo_status": "approval_status",
+        "estado_pronto": "READY_FOR_APPROVAL",
+        "estado_rejeitado": "REJECTED",
+        "nome_legivel": "plano de negócio",
     },
 }
 
@@ -84,24 +104,26 @@ def resolver_aprovacao_contextual(texto: str, session: str, pending_store, brain
         return "Não consegui recuperar o projeto da aprovação pendente."
 
     artefato = getattr(brain, info["campo"], None)
-    if not artefato or artefato.status != info["estado_pronto"]:
+    campo_status = info["campo_status"]
+    status_atual = getattr(artefato, campo_status, None) if artefato else None
+    if not artefato or status_atual != info["estado_pronto"]:
         # O estado ja mudou desde que a pendencia foi registrada (ex.: ja
         # foi aprovado/rejeitado por outra via) -- nunca aplica as cegas.
         pending_store.clear_pending(session)
         return (
             f"Essa aprovação pendente não é mais válida (o {info['nome_legivel']} "
             f"não está mais aguardando aprovação -- status atual: "
-            f"{artefato.status if artefato else 'inexistente'})."
+            f"{status_atual if artefato else 'inexistente'})."
         )
 
     if eh_rejeicao(texto):
-        artefato.status = info["estado_rejeitado"]
+        setattr(artefato, campo_status, info["estado_rejeitado"])
         brain.registrar_aprovacao(f"{artefato_tipo}_REJECTED")
         brain_store.save(brain)
         pending_store.clear_pending(session)
         return f"Entendido, {info['nome_legivel']} rejeitado(a).\n\nProjeto: {project_id}"
 
-    artefato.status = "APPROVED"
+    setattr(artefato, campo_status, "APPROVED")
     brain.registrar_aprovacao(f"{artefato_tipo}_APPROVED")
     brain_store.save(brain)
     pending_store.clear_pending(session)
@@ -120,5 +142,14 @@ def resolver_aprovacao_contextual(texto: str, session: str, pending_store, brain
             "Nenhuma conta de anúncio foi conectada, nenhuma campanha foi "
             "publicada e nenhum valor foi gasto.\n\n"
             f"Projeto: {project_id} | Status: APPROVED | Modo: EXTERNAL_EXECUTION_DISABLED"
+        )
+    if artefato_tipo == "BUSINESS_PLAN":
+        return (
+            "Plano de negócio aprovado.\n\n"
+            f"Projeto: {project_id}\n"
+            "Status: APPROVED\n"
+            "Nenhum conteúdo, ativo ou campanha foi criado/publicado "
+            "automaticamente -- produção de ativos pertence a outro sistema "
+            "(fora desta fase)."
         )
     return f"{info['nome_legivel'].capitalize()} aprovado(a).\n\nProjeto: {project_id}\nStatus: APPROVED"
