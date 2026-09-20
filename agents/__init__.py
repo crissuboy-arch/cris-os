@@ -34,6 +34,7 @@ AGENT_MODULES = [
     "agents.paid_traffic_architect",
     "agents.campaign_executor",
     "agents.performance_agent",
+    "agents.execution_engine",
 ]
 GENERAL_MODULE = "agents.geral"
 

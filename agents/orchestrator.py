@@ -204,6 +204,24 @@ _PERFORMANCE_AGENT_FRASES = (
     "performance deste projeto",
 )
 
+# Execution Engine (Fase 8) e checado ANTES do product_architect (mesmo
+# motivo dos demais: "execute o plano aprovado deste produto" conteria
+# "produto") e ANTES do performance_agent ("andamento deste projeto" nao
+# colide com nada de performance, mas "execução"/"execucao" tambem nao
+# colide com "campanha" -- sem risco de ordem entre os dois, mas mantido
+# nesta posicao por consistencia cronologica das fases).
+_EXECUTION_ENGINE_KEYWORDS = frozenset({"execução", "execucao"})
+_EXECUTION_ENGINE_FRASES = (
+    "execute o plano aprovado", "execute o plano", "execute a execução",
+    "execute a execucao", "inicie a execução", "inicie a execucao",
+    "rode o plano aprovado", "qual o andamento deste projeto",
+    "andamento deste projeto", "andamento do projeto",
+    "pause a execução", "pause a execucao",
+    "continue a execução", "continue a execucao",
+    "cancele a execução", "cancele a execucao",
+    "execution handoff", "handoff da execução", "handoff da execucao",
+)
+
 
 def _model_name(llm: object) -> str:
     """Extrai o nome do modelo do provedor LLM."""
@@ -460,6 +478,15 @@ class AgentOrchestrator:
             )
             return self.agents["performance_agent"]
 
+        # 2.43) Interceptacao deterministica do Execution Engine (Fase 8),
+        #       checada ANTES do product_architect ("produto").
+        if "execution_engine" in self.agents and self._eh_comando_execution_engine(texto):
+            logger.info(
+                "=== [ORCHESTRATOR] Interceptacao deterministica: 'execution_engine' "
+                "(sem passar pelo LLM/Ollama) ===",
+            )
+            return self.agents["execution_engine"]
+
         # 2.5) Interceptacao deterministica do Product Architect (Fase 3),
         #      checada ANTES do opportunity_analyst -- "pegue uma das minhas
         #      melhores oportunidades e me diga que produto criar" nao pode
@@ -601,6 +628,17 @@ class AgentOrchestrator:
         return any(f in texto_lower for f in _PERFORMANCE_AGENT_FRASES)
 
     @staticmethod
+    def _eh_comando_execution_engine(texto: str) -> bool:
+        """Detecta comandos do Execution Engine por palavra-chave/frase (sem LLM)."""
+        texto_lower = texto.lower()
+        palavras = set(texto_lower.split())
+        if palavras & _EXECUTION_ENGINE_KEYWORDS:
+            return True
+        if any(kw in texto_lower for kw in _EXECUTION_ENGINE_KEYWORDS):
+            return True
+        return any(f in texto_lower for f in _EXECUTION_ENGINE_FRASES)
+
+    @staticmethod
     def _eh_comando_product_architect(texto: str) -> bool:
         """Detecta comandos do Product Architect por palavra-chave (sem LLM)."""
         palavras = set(texto.lower().split())
@@ -727,6 +765,7 @@ class AgentOrchestrator:
               "tarefas", "prioridade", "checklist", "pomodoro"], "produtividade"),
             (list(_SCALAFLOW_KEYWORDS), "scalaflow_intel"),
             (["performance", "desempenho"], "performance_agent"),
+            (list(_EXECUTION_ENGINE_KEYWORDS), "execution_engine"),
         ]
 
         multi: list[tuple[str, str]] = [
@@ -744,6 +783,7 @@ class AgentOrchestrator:
             ("produto vencedor", "scalaflow_intel"),
             *[(frase, "campaign_executor") for frase in _CAMPAIGN_EXECUTOR_FRASES],
             *[(frase, "performance_agent") for frase in _PERFORMANCE_AGENT_FRASES],
+            *[(frase, "execution_engine") for frase in _EXECUTION_ENGINE_FRASES],
         ]
 
         for keywords, agent_name in regras:
@@ -805,6 +845,10 @@ class AgentOrchestrator:
             "executor": "campaign_executor",
             "performance": "performance_agent",
             "desempenho": "performance_agent",
+            "execucao": "execution_engine",
+            "execução": "execution_engine",
+            "execution": "execution_engine",
+            "engine": "execution_engine",
         }
         n = nome.strip().lower().replace("-", "_")
         return aliases.get(n, n)

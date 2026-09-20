@@ -655,6 +655,173 @@ class PerformanceSnapshot:
     collected_at: str = field(default_factory=_agora)
 
 
+def novo_execution_id() -> str:
+    return "exec_" + uuid.uuid4().hex[:12]
+
+
+def novo_task_id() -> str:
+    return "task_" + uuid.uuid4().hex[:8]
+
+
+# Estados validos de uma Task (Fase 8 -- Execution Engine). Vocabulario
+# FECHADO -- nunca uma string solta espalhada pelo codigo.
+TASK_ESTADOS_VALIDOS = frozenset({
+    "PENDING", "READY", "RUNNING", "BLOCKED", "COMPLETED", "FAILED",
+    "SKIPPED", "CANCELLED",
+})
+
+# Estados TERMINAIS -- uma task nesses estados nunca e reexecutada
+# automaticamente (garante idempotencia: reprocessar um ExecutionPlan so
+# olha tasks PENDING/READY, nunca uma ja terminal).
+TASK_ESTADOS_TERMINAIS = frozenset({"COMPLETED", "FAILED", "SKIPPED", "CANCELLED"})
+
+
+@dataclass
+class Task:
+    """
+    Unidade de trabalho de um ExecutionPlan (Fase 8). NUNCA e reexecutada
+    automaticamente depois de chegar a um estado TERMINAL
+    (`TASK_ESTADOS_TERMINAIS`) -- a propria identidade (`task_id`,
+    atribuido uma unica vez na criacao do plano e persistido) mais essa
+    checagem de estado SAO o mecanismo de idempotencia (nao existe uma
+    "idempotency key" separada porque nunca ha um caminho que gere um
+    `task_id` novo para a MESMA unidade de trabalho).
+
+    `requires_approval`/`approved` sao dois campos DISTINTOS de proposito:
+    `requires_approval` e uma propriedade fixa da tarefa (definida na
+    criacao do plano); `approved` e o resultado de uma decisao humana
+    explicita, aplicada SOMENTE por `core/approval_router.py` (nunca por
+    adivinhacao, nunca por quem executa o plano). Uma task com
+    `requires_approval=True` e `approved=False` fica com `status="READY"`
+    (pronta, mas aguardando aprovacao) -- o motor NUNCA a executa nesse
+    estado, mesmo que todas as dependencias estejam completas.
+    """
+
+    task_id: str = field(default_factory=novo_task_id)
+    title: str = ""
+    description: str | None = None
+    objective: str | None = None  # contrato de entrada
+    agent: str | None = None  # agente/especialista nominalmente responsavel
+    dependencies: list[str] = field(default_factory=list)  # task_ids
+    priority: str = "media"  # "baixa" | "media" | "alta"
+    status: str = "PENDING"
+
+    # --- contrato de entrada/saida ---
+    input_refs: list[str] = field(default_factory=list)  # = context_refs
+    output_refs: list[str] = field(default_factory=list)  # = artifact_refs
+    constraints: list[str] = field(default_factory=list)
+    result: str | None = None
+    evidence: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+    error: str | None = None
+
+    # --- execucao externa (SEMPRE desabilitada nesta fase) ---
+    requires_approval: bool = False
+    external_action: bool = False
+    approved: bool = False
+    approved_at: str | None = None
+    # True quando uma task `external_action=True` foi "concluida" via
+    # DRY_RUN/MOCK -- NUNCA True para uma execucao externa real (que nao
+    # existe nesta fase).
+    simulated: bool = False
+
+    # --- custo (SEMPRE estimativa -- nunca fato sem execucao real) ---
+    estimated_cost: str | None = None
+    actual_cost: str | None = None
+
+    # --- retry ---
+    retry_count: int = 0
+    max_retries: int = 2
+
+    created_at: str = field(default_factory=_agora)
+    updated_at: str = field(default_factory=_agora)
+
+
+# Estados validos de um ExecutionPlan (Fase 8). A criacao SEMPRE termina em
+# READY_FOR_APPROVAL -- nunca APPROVED automaticamente (mesmo principio de
+# TrafficPlan/CampaignSpec/BusinessPlan: aprovacao e sempre um ato humano
+# explicito).
+EXECUTION_PLAN_ESTADOS_VALIDOS = frozenset({
+    "DRAFT", "READY_FOR_APPROVAL", "APPROVED", "RUNNING", "PAUSED",
+    "BLOCKED", "COMPLETED", "FAILED", "CANCELLED",
+})
+
+# Tipos de artefato que podem ser a origem de um ExecutionPlan -- fechado de
+# proposito, nunca uma string livre.
+EXECUTION_SOURCE_ARTIFACT_TIPOS = frozenset({
+    "BUSINESS_PLAN", "TRAFFIC_PLAN", "CAMPAIGN_SPEC", "PRODUCT_BLUEPRINT",
+})
+
+
+@dataclass
+class ExecutionPlan:
+    """
+    Converte um artefato JA APROVADO (BusinessPlan/TrafficPlan/CampaignSpec/
+    ProductBlueprint) numa sequencia de Tasks com dependencias explicitas
+    (Fase 8 -- Execution Engine). NUNCA executa nenhuma acao externa real --
+    tasks com `external_action=True` so podem ser "concluidas" via
+    simulacao (DRY_RUN/MOCK), e mesmo assim exigem aprovacao humana
+    explicita por TASK (nao so aprovacao do plano inteiro).
+
+    `total_tasks`/`completed_tasks`/`failed_tasks`/`blocked_tasks`/
+    `pending_tasks` (o "SUMMARY" pedido) sao deliberadamente CALCULADOS
+    (`resumo()`), nunca persistidos como campos separados -- mesmo
+    principio de "nunca uma segunda fonte de verdade" ja aplicado ao
+    Artifact Manifest (Fase 4) e a `ProjectBrain.coletar_evidencias_pesquisa`
+    (Fase 5): um contador guardado à parte da lista real de tasks
+    inevitavelmente destoa dela mais cedo ou mais tarde.
+    """
+
+    execution_id: str = field(default_factory=novo_execution_id)
+    project_id: str = ""
+    source_artifact_type: str | None = None  # ver EXECUTION_SOURCE_ARTIFACT_TIPOS
+    source_artifact_id: str | None = None
+    objective: str | None = None
+    status: str = "DRAFT"
+    version: int = 1
+    created_at: str = field(default_factory=_agora)
+    updated_at: str = field(default_factory=_agora)
+
+    tasks: list[Task] = field(default_factory=list)
+
+    # --- controle humano ---
+    requires_human_approval: bool = True
+    approved_at: str | None = None
+    execution_started_at: str | None = None
+    execution_finished_at: str | None = None
+
+    def esta_aprovado(self) -> bool:
+        """SOMENTE `status == "APPROVED"` conta -- mas note que, diferente
+        dos outros artefatos, o ExecutionPlan CONTINUA em uso depois disso
+        (avanca para RUNNING/PAUSED/COMPLETED/etc.) -- use
+        `esta_liberado_para_rodar()` para saber se o motor pode processar
+        tasks agora."""
+        return self.status == "APPROVED"
+
+    def esta_liberado_para_rodar(self) -> bool:
+        """Estados em que o motor PODE processar tasks prontas -- nunca em
+        DRAFT/READY_FOR_APPROVAL (falta aprovacao humana) nem em
+        PAUSED/CANCELLED/COMPLETED/FAILED (parado de proposito ou
+        definitivamente encerrado)."""
+        return self.status in {"APPROVED", "RUNNING"}
+
+    def resumo(self) -> dict:
+        contagem = {"PENDING": 0, "READY": 0, "RUNNING": 0, "BLOCKED": 0,
+                    "COMPLETED": 0, "FAILED": 0, "SKIPPED": 0, "CANCELLED": 0}
+        for t in self.tasks:
+            contagem[t.status] = contagem.get(t.status, 0) + 1
+        return {
+            "total_tasks": len(self.tasks),
+            "completed_tasks": contagem["COMPLETED"],
+            "failed_tasks": contagem["FAILED"],
+            "blocked_tasks": contagem["BLOCKED"],
+            "pending_tasks": contagem["PENDING"] + contagem["READY"],
+            "running_tasks": contagem["RUNNING"],
+            "cancelled_tasks": contagem["CANCELLED"],
+            "skipped_tasks": contagem["SKIPPED"],
+        }
+
+
 @dataclass
 class ProjectBrain:
     identidade: Identidade
@@ -669,6 +836,7 @@ class ProjectBrain:
     traffic_plan: TrafficPlan | None = None
     campaign_spec: CampaignSpec | None = None
     performance_snapshots: list[PerformanceSnapshot] = field(default_factory=list)
+    execution_plan: ExecutionPlan | None = None
     artifact_manifest: dict | None = None
     brand: Brand = field(default_factory=Brand)
     assets: Assets = field(default_factory=Assets)
@@ -689,6 +857,11 @@ class ProjectBrain:
         production_plan_dict = d.get("production_plan")
         traffic_plan_dict = d.get("traffic_plan")
         campaign_spec_dict = d.get("campaign_spec")
+        execution_plan_dict = d.get("execution_plan")
+        execution_plan = None
+        if execution_plan_dict:
+            tarefas = [Task(**t) for t in execution_plan_dict.get("tasks", [])]
+            execution_plan = ExecutionPlan(**{**execution_plan_dict, "tasks": tarefas})
         return cls(
             identidade=Identidade(**d["identidade"]),
             origem=Origem(**d.get("origem", {})),
@@ -702,6 +875,7 @@ class ProjectBrain:
             traffic_plan=TrafficPlan(**traffic_plan_dict) if traffic_plan_dict else None,
             campaign_spec=CampaignSpec(**campaign_spec_dict) if campaign_spec_dict else None,
             performance_snapshots=[PerformanceSnapshot(**s) for s in d.get("performance_snapshots", [])],
+            execution_plan=execution_plan,
             artifact_manifest=d.get("artifact_manifest"),
             brand=Brand(**d.get("brand", {})),
             assets=Assets(**d.get("assets", {})),
@@ -914,13 +1088,21 @@ class PendingApprovalStore:
     def _item_id(session: str) -> str:
         return f"pending_approval:{session}"
 
-    def set_pending(self, session: str, project_id: str, artifact_type: str, action: str = "APPROVE") -> None:
+    def set_pending(
+        self, session: str, project_id: str, artifact_type: str,
+        action: str = "APPROVE", task_id: str | None = None,
+    ) -> None:
+        """`task_id` (Fase 8) e opcional -- so usado quando `artifact_type`
+        e "EXECUTION_TASK" (a Task nao e um atributo direto do
+        ProjectBrain, entao precisa desse identificador extra pra
+        `core/approval_router.py` localiza-la sem ambiguidade)."""
         if not session:
             return  # sem sessao -- nao persiste as cegas (mesmo principio do UserFocusStore)
         payload = json.dumps({
             "project_id": project_id,
             "artifact_type": artifact_type,
             "action": action,
+            "task_id": task_id,
             "created_at": _agora(),
         }, ensure_ascii=False)
         item = KnowledgeItem(
