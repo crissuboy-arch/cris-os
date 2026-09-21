@@ -87,6 +87,13 @@ class Settings:
     # Tempo de vida do "lease" de líder (eleição p/ 2ª máquina / failover).
     LEASE_TTL_SECONDS: int = _get_int("LEASE_TTL_SECONDS", 60)
 
+    # Token estático compartilhado com o ScalaFlow (Fase 9 -- receptor HTTP
+    # de MarketIntelligenceHandoff em web/backend/routes/market_intelligence.py).
+    # NUNCA um JWT de usuário da Studio -- autenticação service-to-service.
+    # Vazio = endpoint responde 503 (integração não configurada), nunca abre
+    # sem token.
+    CRIS_OS_INTEGRATION_TOKEN: str = os.getenv("CRIS_OS_INTEGRATION_TOKEN", "").strip()
+
     # --- ODS (Osmantic Deployment System) ---
     ODS_ENABLED: bool = _get_bool("ODS_ENABLED", True)
     ODS_BASE_URL: str = os.getenv("ODS_BASE_URL", "http://localhost:11434").rstrip("/")

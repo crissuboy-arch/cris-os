@@ -102,23 +102,48 @@ Eventos logados (via `logging` padrão, mesmo padrão de todas as fases anterior
 
 Tudo no **mesmo** `ProjectBrain`/`data/cris_os.db` — `market_intelligence: list[MarketIntelligenceHandoff]` no brain do projeto resolvido, `IntelligenceHandoffStore` na mesma tabela `project_memory`. Testado: após restart do processo, handoff/evidência/provenance/status continuam intactos, e deduplicação continua funcionando.
 
-## Como conectar o ScalaFlow real (o que falta)
+## Como conectar o ScalaFlow real
 
-Hoje `receive_intelligence(payload, brain_store, handoff_store)` é uma **função Python direta** — não existe um servidor HTTP escutando por handoffs. Para conectar o ScalaFlow real, falta **um único passo técnico**: expor esta função via algum transporte que o ScalaFlow possa chamar. Duas opções, escolher **depois** de decidir onde o ScalaFlow vai rodar:
+**Implementado**: `POST /api/integrations/scalaflow/intelligence` — rota HTTP em `web/backend/routes/market_intelligence.py`, incluída no FastAPI já existente para o CRIS OS Studio (`web/backend/app.py`) — **nunca** no bot do Telegram. A rota é só transporte: autentica, faz validações de tamanho/JSON no nível HTTP e delega toda a lógica de negócio para `core.market_intelligence.receive_intelligence` (a mesma função já testada em `tests/test_market_intelligence.py`).
 
-1. **Mesmo processo/máquina**: o ScalaFlow (ou um script ponte) importa `core.market_intelligence.receive_intelligence` diretamente e chama com um payload no formato do contrato acima.
-2. **Processos/máquinas diferentes**: expor uma rota HTTP fina (ex.: no `web/backend` FastAPI já existente para o CRIS OS Studio, **não** no bot do Telegram) que recebe o payload, chama `receive_intelligence` e devolve o dict de resultado. Isso exigiria: autenticação (token compartilhado via variável de ambiente, nunca hardcoded), validação de tamanho de payload no nível HTTP também, e rate limiting básico contra replay.
+**Contrato HTTP:**
+- `POST /api/integrations/scalaflow/intelligence`
+- Header obrigatório: `Authorization: Bearer <CRIS_OS_INTEGRATION_TOKEN>` (aceita também o token sem o prefixo `Bearer `)
+- Corpo: JSON no formato `MarketIntelligenceHandoff` (ver contrato acima)
+- Respostas:
+  - `200` — `PERSISTED` ou `DUPLICATE`
+  - `202` — `NEEDS_REVIEW` (aceito, mas precisa de revisão humana)
+  - `400` — `REJECTED` (payload inválido — **não repetir sem corrigir**)
+  - `401` — token inválido/ausente (**não repetir sem corrigir o token**)
+  - `413` — corpo excede o tamanho máximo permitido (~260 KB)
+  - `503` — integração não configurada neste ambiente (`CRIS_OS_INTEGRATION_TOKEN` vazio)
 
-**Nenhuma das duas opções foi implementada nesta fase** — nenhum endpoint HTTP, nenhuma URL, nenhuma tabela ou payload do lado ScalaFlow foi inventado, conforme regra explícita da Fase 9.
+Isso corresponde exatamente à "opção 2" (processos/máquinas diferentes) do transporte previsto originalmente nesta fase — a "opção 1" (chamada Python direta, mesmo processo) continua disponível para quem preferir, chamando `core.market_intelligence.receive_intelligence` diretamente.
 
-### Variáveis de ambiente necessárias (quando a opção 2 for implementada)
+### Variáveis de ambiente necessárias
 
-Nenhuma variável nova foi adicionada nesta fase (não há HTTP ainda). Quando implementado, será necessário no mínimo: um token de autenticação compartilhado (ex.: `SCALAFLOW_INTEGRATION_TOKEN`), nunca commitado, sempre lido via `config/settings.py` como as demais chaves (`OPENROUTER_API_KEY`, `SUPABASE_SERVICE_KEY`).
+- `CRIS_OS_INTEGRATION_TOKEN` (`.env`, raiz do repositório, compartilhado entre bot e `web/backend`) — token estático, gerado por exemplo com `openssl rand -hex 32`. Configure o **mesmo** valor no lado ScalaFlow. Vazio = endpoint responde `503` (nunca abre sem token).
+
+### Segurança implementada
+
+- Comparação de token em tempo constante (`hmac.compare_digest`), mesmo princípio já usado em `agent_builder/auth.py` para verificação de assinatura JWT.
+- Nunca loga o token recebido nem o esperado — só o fato de a tentativa ter falhado.
+- Nunca expõe stack trace ao chamador — qualquer exceção inesperada vira `500` genérico; o detalhe real fica só no log do servidor.
+- Verificação de tamanho do corpo bruto **antes** de tentar decodificar/parsear JSON (defesa em profundidade, além do limite de 256 KB já aplicado dentro de `validar_payload`).
+- Autenticação é **service-to-service** (token estático) — deliberadamente separada do JWT de usuário da Studio (`agent_builder/auth.py`), nunca reaproveitada para esse fim.
+
+### Dependências
+
+Este endpoint faz parte do subsistema **CRIS OS Studio** (`web/backend`), que tem dependências próprias (`web/backend/requirements.txt`: `fastapi`, `uvicorn`) — deliberadamente separadas do `requirements.txt` da raiz (usado só pelo bot do Telegram). Para rodar/testar este endpoint: `pip install -r web/backend/requirements.txt`. O teste correspondente (`tests/test_market_intelligence_api.py`) usa `pytest.importorskip("fastapi")` e é pulado automaticamente em ambientes que só instalaram o `requirements.txt` da raiz.
 
 ## Como executar os testes
 
 ```powershell
 python -m pytest tests/test_market_intelligence.py tests/test_fase9_routing.py tests/test_fase9_end_to_end.py tests/test_fase9_tools.py -v
+
+# receptor HTTP -- exige `pip install -r web/backend/requirements.txt` primeiro
+# (pulado automaticamente se so o requirements.txt da raiz estiver instalado)
+python -m pytest tests/test_market_intelligence_api.py -v
 ```
 
 ## Como diagnosticar a integração
@@ -140,9 +165,19 @@ get_intelligence("handoff_yyy", store, handoff_store)
 
 Pelo Telegram: `"Mostre a inteligência de mercado deste projeto."` (projeto resolvido pelo foco atual da sessão, mesmo mecanismo do `UserFocusStore` usado desde a Fase 3).
 
+Via HTTP (com o `web/backend` rodando -- `python -m uvicorn web.backend.app:app --reload --port 8000`):
+
+```bash
+curl -X POST http://localhost:8000/api/integrations/scalaflow/intelligence \
+  -H "Authorization: Bearer $CRIS_OS_INTEGRATION_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"handoff_id": "teste-manual-1", "source_system": "SCALAFLOW", "title": "Teste manual"}'
+```
+
 ## Limitações conhecidas
 
-- Não existe transporte HTTP/webhook real ainda — só a função Python (`receive_intelligence`), ver seção acima.
+- O endpoint HTTP não tem rate limiting nem proteção explícita contra replay além da idempotência natural do `handoff_id` (um replay do mesmo handoff é inofensivo — vira `DUPLICATE` — mas nada impede múltiplas tentativas de adivinhar o token, além do próprio custo de cada tentativa falhar com 401).
+- Não há rotação de token automatizada — trocar `CRIS_OS_INTEGRATION_TOKEN` exige atualizar `.env` (CRIS OS) e a configuração equivalente no ScalaFlow manualmente, ao mesmo tempo.
 - `schema_version` só suporta `"1.0"` — versionamento futuro exigirá lógica de migração explícita quando `"2.0"` existir.
 - Validação de URL é superficial (checa só o esquema `http(s)://`) — não valida se a URL responde de verdade.
 - `_classificar_confianca` usa um limiar fixo (`opportunity_score >= 70` sem evidência → `NEEDS_REVIEW`) — pode precisar de calibração com dados reais.
@@ -152,7 +187,7 @@ Pelo Telegram: `"Mostre a inteligência de mercado deste projeto."` (projeto res
 ## FUTURE CONSIDERATIONS (não implementar agora)
 
 - LOOP-R, Hermes, Zo Computer — nenhum destes foi avaliado ou implementado nesta fase; ficam como ideias registradas para avaliação futura, fora do escopo da Fase 9.
-- Endpoint HTTP real de recebimento de handoffs (com autenticação, rate limiting, proteção contra replay).
+- Rate limiting e proteção explícita contra replay no endpoint HTTP (hoje só a idempotência natural do `handoff_id`).
 - Fila de "handoffs NEEDS_REVIEW" pesquisável/acionável pelo Telegram.
 - Mineração real via ScalaFlow (Apify, atores pagos) — **explicitamente fora de escopo desta fase**; o primeiro teste real será conduzido pela usuária após o fechamento, seguindo o checklist abaixo.
 
@@ -162,7 +197,7 @@ Pelo Telegram: `"Mostre a inteligência de mercado deste projeto."` (projeto res
 - [ ] CRIS OS online (bot rodando, `AgentOrchestrator` ativo)
 - [ ] ScalaFlow online
 - [ ] Project Brain acessível (`data/cris_os.db` presente e gravável)
-- [ ] Decisão tomada sobre transporte (chamada direta vs. HTTP) e, se HTTP, integração autenticada
+- [ ] `web/backend` (CRIS OS Studio) rodando e acessível pelo ScalaFlow, com `CRIS_OS_INTEGRATION_TOKEN` configurado nos dois lados
 - [ ] Nenhuma chave exposta em código/logs
 - [ ] Orçamento/custo conhecido (Apify e afins) antes de rodar qualquer mineração paga
 - [ ] Projeto de teste identificado (ou aceitar criação controlada de um novo)
