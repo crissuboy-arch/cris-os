@@ -246,8 +246,10 @@ def test_todas_as_work_orders_criadas_para_carla_nunca_estao_completed_sem_outpu
 # ---------------------------------------------------------------------------
 
 def test_adapter_stub_nunca_marca_dispatched():
-    wo = ProductionWorkOrder(project_id="proj_x", asset_type="LANDING_PAGE", executor_type="PAGEFORGE", status="READY")
-    adapter = obter_adapter("PAGEFORGE")
+    # PINK_LOGIC (intencionalmente não tocado nesta missão) continua no
+    # stub seguro -- PAGEFORGE agora tem adapter real, ver test_pageforge_adapter.py.
+    wo = ProductionWorkOrder(project_id="proj_x", asset_type="MARKETING_MATERIAL", executor_type="PINK_LOGIC", status="READY")
+    adapter = obter_adapter("PINK_LOGIC")
     assert isinstance(adapter, AdapterNaoConectado)
     resultado = adapter.dispatch(wo)
     assert resultado.status == "READY"  # nunca avançou

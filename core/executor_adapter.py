@@ -1,14 +1,15 @@
 """
 Executor Adapter -- interface comum que QUALQUER executor especializado
-futuro (PageForge, Pink Logic, Criador-de-App, ForgeHub, NEXORA) implementará
-para receber trabalho do Cris OS.
+(PageForge, Pink Logic, Criador-de-App, ForgeHub, NEXORA) implementa para
+receber trabalho do Cris OS.
 
-NENHUM adapter real existe nesta fase -- nenhuma chamada HTTP, nenhuma
-integração com API externa. Este módulo só define o CONTRATO (Protocol) e
-um único stub seguro (`AdapterNaoConectado`) que PROVA a forma do contrato
-sem nunca fingir produção concluída.
+PAGEFORGE tem um adapter REAL (`core/pageforge_adapter.py:PageForgeAdapter`)
+-- os demais continuam no stub seguro (`AdapterNaoConectado`), que PROVA a
+forma do contrato sem nunca fingir produção concluída. NADA neste módulo
+(nem em nenhum outro) chama `.dispatch()` automaticamente -- é preciso um
+chamador explícito para qualquer envio real acontecer.
 
-Quando um executor real for conectado (fase futura, fora desta missão):
+Quando um NOVO executor real for conectado:
   1. Implementar `ExecutorAdapter` para aquele executor específico.
   2. Registrar em `EXECUTOR_REGISTRY[<executor_type>]`.
   3. `core/production_orders.py` (ou quem despachar) passa a encontrar um
@@ -19,6 +20,7 @@ from __future__ import annotations
 
 from typing import Protocol, runtime_checkable
 
+from core.pageforge_adapter import PageForgeAdapter
 from memory.project_brain import ProductionWorkOrder
 
 
@@ -72,12 +74,16 @@ class AdapterNaoConectado:
         return work_order
 
 
-# Nenhum executor real registrado nesta fase -- toda chave aponta para o
-# MESMO stub seguro. Conectar um executor real = substituir a entrada
-# correspondente por uma implementação real de `ExecutorAdapter`.
+# PAGEFORGE agora tem um adapter REAL (`core/pageforge_adapter.py`) -- mas
+# ele próprio se recusa a despachar sem `PAGEFORGE_BRIDGE_TOKEN` configurado
+# (nunca chama sem autenticação, nunca finge sucesso). NADA no resto do
+# Cris OS chama `.dispatch()` automaticamente -- é preciso um chamador
+# explícito (fora desta missão) para o primeiro envio real acontecer. Os
+# demais executores continuam no stub seguro até terem seu próprio adapter
+# real conectado -- ver PINK_LOGIC (intencionalmente não tocado nesta missão).
 EXECUTOR_REGISTRY: dict[str, ExecutorAdapter] = {
     "APP_BUILDER": AdapterNaoConectado(),
-    "PAGEFORGE": AdapterNaoConectado(),
+    "PAGEFORGE": PageForgeAdapter(),
     "PINK_LOGIC": AdapterNaoConectado(),
     "FORGEHUB": AdapterNaoConectado(),
     "NEXORA": AdapterNaoConectado(),

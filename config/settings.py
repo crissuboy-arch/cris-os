@@ -94,6 +94,16 @@ class Settings:
     # sem token.
     CRIS_OS_INTEGRATION_TOKEN: str = os.getenv("CRIS_OS_INTEGRATION_TOKEN", "").strip()
 
+    # --- PageForge (executor PAGEFORGE -- core/pageforge_adapter.py) ---
+    # Bridge já validado em produção do lado PageForge (repo
+    # crissuboy-arch/forge-sales-page-skill). PAGEFORGE_BRIDGE_TOKEN
+    # precisa ter EXATAMENTE o mesmo valor configurado na Vercel do
+    # PageForge como CRIS_OS_BRIDGE_TOKEN. Vazio = adapter recusa despachar
+    # (nunca finge sucesso, nunca chama sem autenticação).
+    PAGEFORGE_API_URL: str = os.getenv("PAGEFORGE_API_URL", "https://pageforge-ai-woad.vercel.app").rstrip("/")
+    PAGEFORGE_BRIDGE_TOKEN: str = os.getenv("PAGEFORGE_BRIDGE_TOKEN", "").strip()
+    PAGEFORGE_TIMEOUT: int = _get_int("PAGEFORGE_TIMEOUT", 30)
+
     # --- ODS (Osmantic Deployment System) ---
     ODS_ENABLED: bool = _get_bool("ODS_ENABLED", True)
     ODS_BASE_URL: str = os.getenv("ODS_BASE_URL", "http://localhost:11434").rstrip("/")

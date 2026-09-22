@@ -289,12 +289,26 @@ core.executor_adapter.ExecutorAdapter  (novo -- CONTRATO, protocol)
 | `CRM` | `NEXORA` | NEXORA |
 | `UNKNOWN` | `NEEDS_ROUTING` | (nenhum -- precisa de classificação manual) |
 
-**Nesta fase, NENHUM executor real é chamado.** `AdapterNaoConectado.dispatch()`
-devolve a WorkOrder inalterada — nenhuma chamada HTTP, nenhuma integração.
-Conectar um executor real (fase futura, fora desta missão) significa:
-implementar `ExecutorAdapter` para aquele executor e substituir sua entrada
-em `core.executor_adapter.EXECUTOR_REGISTRY` — nenhuma mudança de contrato
-em `ProductionWorkOrder`/`production_router`/`production_orders` necessária.
+**PAGEFORGE tem um adapter REAL** (`core/pageforge_adapter.py:PageForgeAdapter`),
+conectado ao bridge já validado em produção (repo
+`crissuboy-arch/forge-sales-page-skill`, commit `a4219d3`,
+`https://pageforge-ai-woad.vercel.app` — `POST`/`GET
+/api/integrations/cris-os/work-orders{,/​{work_order_id}}`). Os demais
+executores continuam no `AdapterNaoConectado.dispatch()` (devolve a
+WorkOrder inalterada — nenhuma chamada HTTP). **Nada no Cris OS chama
+`.dispatch()` automaticamente** — nenhum comando/fluxo existente dispara um
+envio real; isso exige um chamador explícito (fora do escopo desta
+integração até hoje). O adapter do PageForge, por si só, também se recusa a
+despachar sem `PAGEFORGE_BRIDGE_TOKEN` configurado (`config/settings.py`) —
+nunca chama sem autenticação, nunca finge sucesso. Configurar:
+`PAGEFORGE_API_URL`/`PAGEFORGE_BRIDGE_TOKEN`/`PAGEFORGE_TIMEOUT` no `.env`
+(ver `.env.example`) — `PAGEFORGE_BRIDGE_TOKEN` precisa ser EXATAMENTE o
+mesmo valor configurado na Vercel do PageForge como `CRIS_OS_BRIDGE_TOKEN`.
+Conectar um NOVO executor (Pink Logic, Criador-de-App, ForgeHub, NEXORA)
+segue o mesmo padrão: implementar `ExecutorAdapter` e substituir sua
+entrada em `core.executor_adapter.EXECUTOR_REGISTRY` — nenhuma mudança de
+contrato em `ProductionWorkOrder`/`production_router`/`production_orders`
+necessária.
 
 **Identidade preservada**: toda `ProductionWorkOrder` carrega
 `handoff_id`/`project_id`/`execution_plan_id`/`source_task_id` explícitos —
