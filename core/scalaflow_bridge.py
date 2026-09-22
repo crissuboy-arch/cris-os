@@ -160,11 +160,27 @@ def avancar_projeto(
     llm_blueprint=None,
     llm_business=None,
     notificar: bool = True,
+    focus_store=None,
 ) -> dict:
     """
     Detecta a PRIMEIRA etapa ausente para este projeto e avança dali --
     nunca recria o que já existe (idempotente por construção, seguro para
     restart/retry/chamada repetida).
+
+    CORREÇÃO DE BUG REAL (contexto Telegram perdido): esta função é sempre
+    chamada com um `project_id`/`handoff_id` EXPLÍCITO (nunca por adivinhação
+    -- ver `avancar_a_partir_do_handoff`), então invocá-la é, por definição,
+    a "troca EXPLÍCITA de projeto pela usuária" que o resto do sistema
+    (`tools/execution_engine_tools.py`, `tools/business_builder_tools.py`,
+    `tools/market_intelligence_tools.py`, ...) já respeita via
+    `UserFocusStore`/`get_foco_atual` (Fase 3). Por isso, ANTES de qualquer
+    outra coisa, esta função atualiza o foco da sessão para este projeto --
+    sem isso, uma pendência/BusinessPlan criado aqui existe corretamente no
+    Project Brain, mas qualquer comando genérico subsequente ("execute o
+    plano", "mostre o plano de negócio", "status") continuava resolvendo o
+    ÚLTIMO projeto focado pelo fluxo orgânico antigo (Opportunity Analyst/
+    Product Architect), nunca o projeto vindo do ScalaFlow -- bug real
+    observado em produção (ver commit que introduziu esta correção).
 
     Devolve um dict `{status, project_id, handoff_id, message}` --
     `status` é um de:
@@ -182,6 +198,12 @@ def avancar_projeto(
         para o que acontece depois da aprovação).
     """
     session = session or sessao_cris()
+    if focus_store is None:
+        from memory.project_brain import UserFocusStore
+
+        focus_store = UserFocusStore(brain_store.project_memory)
+    focus_store.set_focus(session, brain.project_id)
+
     handoff_id = brain.market_intelligence[-1].handoff_id if brain.market_intelligence else None
 
     if brain.business_plan and brain.business_plan.approval_status in {"APPROVED", "REJECTED"}:
@@ -292,6 +314,7 @@ def avancar_a_partir_do_handoff(
     llm_blueprint=None,
     llm_business=None,
     notificar: bool = True,
+    focus_store=None,
 ) -> dict:
     """
     Ponto de entrada do mecanismo de RESUME/ADVANCE (Seção 5 da missão):
@@ -322,6 +345,7 @@ def avancar_a_partir_do_handoff(
     return avancar_projeto(
         brain, brain_store, pending_store, session=session,
         llm_blueprint=llm_blueprint, llm_business=llm_business, notificar=notificar,
+        focus_store=focus_store,
     )
 
 

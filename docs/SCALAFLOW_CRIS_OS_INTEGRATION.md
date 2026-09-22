@@ -201,6 +201,13 @@ core.scalaflow_bridge.avancar_projeto / avancar_a_partir_do_handoff
         ├─ memory.project_brain.PendingApprovalStore.set_pending  (Fase 6, reaproveitado)
         │     → pendência com project_id + handoff_id explícitos
         │
+        ├─ memory.project_brain.UserFocusStore.set_focus  (Fase 3, reaproveitado)
+        │     → foco da sessão passa a apontar para ESTE projeto (correção de
+        │       bug real: sem isso, comandos genéricos como "execute o plano"
+        │       continuavam resolvendo o último projeto do fluxo orgânico
+        │       antigo -- "Aprovado"/"Rejeito" nunca foram afetados, pois o
+        │       Approval Router resolve por PendingApprovalStore, não por foco)
+        │
         └─ channels.telegram.bot.enviar_mensagem_proativa  (novo, mas reaproveita
               TELEGRAM_BOT_TOKEN/TELEGRAM_ALLOWED_USER_ID já existentes)
               → notifica a Cris
