@@ -67,6 +67,54 @@ def _dividir_mensagem(texto: str, limite: int = _LIMITE_MENSAGEM_TELEGRAM) -> li
     return partes
 
 
+def enviar_mensagem_proativa(texto: str) -> bool:
+    """
+    Envia uma mensagem ao Telegram FORA do ciclo pergunta/resposta normal
+    (ex.: notificar uma aprovação pendente criada por um handoff recebido
+    via HTTP, sem nenhuma mensagem do usuário para responder).
+
+    Usa a API HTTP do Telegram diretamente (mesmo princípio de
+    `agent_builder/notifier.py`), mas reaproveita o MESMO
+    `TELEGRAM_BOT_TOKEN`/`TELEGRAM_ALLOWED_USER_ID` já usados por todo o
+    resto do bot (`config/settings.py`) -- nenhuma variável de ambiente
+    nova, nenhum segundo bot/token. Funciona independente do processo
+    `run_polling()` estar rodando (envio de mensagem é uma chamada HTTP
+    stateless da API do Telegram, não depende do loop de polling).
+
+    NUNCA lança exceção -- falha de rede/Telegram vira log + `False`,
+    nunca interrompe quem chamou (a orquestração que gerou a notificação
+    já persistiu o que precisava antes de notificar).
+    """
+    import urllib.error
+    import urllib.request
+    import json as _json
+
+    from config.settings import settings
+
+    token = settings.TELEGRAM_BOT_TOKEN
+    chat_id = settings.TELEGRAM_ALLOWED_USER_ID
+    if not token or not chat_id:
+        logger.warning("=== [TELEGRAM] Notificação proativa sem TELEGRAM_BOT_TOKEN/TELEGRAM_ALLOWED_USER_ID configurados ===")
+        return False
+
+    sucesso = True
+    for parte in _dividir_mensagem(texto):
+        payload = _json.dumps({"chat_id": chat_id, "text": parte}).encode("utf-8")
+        try:
+            req = urllib.request.Request(
+                f"https://api.telegram.org/bot{token}/sendMessage",
+                data=payload, method="POST",
+                headers={"Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                resultado = _json.loads(resp.read().decode())
+                sucesso = sucesso and bool(resultado.get("ok"))
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            logger.warning("=== [TELEGRAM] Falha ao enviar notificação proativa: %s ===", exc)
+            sucesso = False
+    return sucesso
+
+
 class TelegramChannel:
     """Canal Telegram. Recebe o `handler` (Gateway.handle) por injeção."""
 

@@ -174,6 +174,70 @@ curl -X POST http://localhost:8000/api/integrations/scalaflow/intelligence \
   -d '{"handoff_id": "teste-manual-1", "source_system": "SCALAFLOW", "title": "Teste manual"}'
 ```
 
+## Orquestração pós-recebimento: `core/scalaflow_bridge.py`
+
+O receptor HTTP (`web/backend/routes/market_intelligence.py` +
+`core/market_intelligence.py:receive_intelligence`) permanece **inalterado**
+e continua fazendo só validação/dedup/persistência — nenhuma lógica de
+negócio nova foi adicionada a ele (nem ao `receive_intelligence`). A
+orquestração que fecha o caminho até uma decisão humana real vive num
+módulo separado, `core/scalaflow_bridge.py`, reaproveitando os componentes
+já existentes das Fases 3/4/6/8 sem reimplementar nenhum deles:
+
+```
+MarketIntelligenceHandoff (persistido, sem alteração)
+        │
+        ▼
+core.scalaflow_bridge.avancar_projeto / avancar_a_partir_do_handoff
+        │
+        ├─ core.product_architect.propor_produto  (Fase 3, reaproveitado)
+        │     → blueprint consolidado (decision_status="APPROVED" pela ponte
+        │       — ver decisão arquitetural no docstring do módulo: um único
+        │       gate humano nesta integração, não três)
+        │
+        ├─ core.business_builder.construir_plano_negocio  (Fase 4/7, reaproveitado)
+        │     → BusinessPlan (READY_FOR_APPROVAL)
+        │
+        ├─ memory.project_brain.PendingApprovalStore.set_pending  (Fase 6, reaproveitado)
+        │     → pendência com project_id + handoff_id explícitos
+        │
+        └─ channels.telegram.bot.enviar_mensagem_proativa  (novo, mas reaproveita
+              TELEGRAM_BOT_TOKEN/TELEGRAM_ALLOWED_USER_ID já existentes)
+              → notifica a Cris
+
+core.approval_router.resolver_aprovacao_contextual  (Fase 6, ESTENDIDO)
+        │  ("Aprovado"/"Rejeito" na mesma sessão Telegram)
+        ▼
+  BUSINESS_PLAN aprovado → core.execution_engine.criar_execution_plan
+        (Fase 8, reaproveitado, sem executar nada) → ExecutionPlan + Tasks
+        → nova pendência EXECUTION_PLAN (a execução real de tasks continua
+          exigindo aprovação explícita por task, inalterado)
+```
+
+**Ativação**: hoje esta orquestração é sempre **explícita** (nunca automática
+dentro do request HTTP do receptor) — invocada via o comando de chat "avance
+o handoff `<id>`"/"retome o projeto" (`tools/market_intelligence_tools.py`)
+ou diretamente em Python (`avancar_a_partir_do_handoff`). Isso é deliberado:
+o receptor HTTP precisa continuar rápido e sem side effects (ele é testado
+explicitamente para nunca fazer chamada externa — `test_endpoint_nunca_faz_chamada_http_externa`),
+e gerar um BusinessPlan pode envolver uma chamada real a um LLM.
+
+**Ponto de extensão futuro — "Decision Gate" (Jev, não instalado)**: as duas
+funções públicas de `core/scalaflow_bridge.py` (`avancar_projeto`,
+`avancar_a_partir_do_handoff`) foram desenhadas para que um futuro
+"Decision Gate" (usando `Jev yes/pick/score/run` para decisões rápidas
+estruturadas) possa interceptar a chamada ANTES de `propor_produto` — por
+exemplo, para decidir automaticamente "avançar" vs. "aguardar mais
+evidência" sem intervenção manual a cada handoff. Isso é só um ponto de
+extensão documentado — nenhuma dependência de Jev existe no código hoje.
+
+**Consulta de status** (somente leitura, mesma API de integração):
+`GET /api/integrations/scalaflow/intelligence/{handoff_id}/status`, mesma
+autenticação `Authorization: Bearer <CRIS_OS_INTEGRATION_TOKEN>` do POST.
+Devolve o snapshot de `core.scalaflow_bridge.montar_status` (project_id,
+status do BusinessPlan/aprovação pendente/ExecutionPlan/contagem de tasks,
+último erro) — nunca inclui segredo algum.
+
 ## Limitações conhecidas
 
 - O endpoint HTTP não tem rate limiting nem proteção explícita contra replay além da idempotência natural do `handoff_id` (um replay do mesmo handoff é inofensivo — vira `DUPLICATE` — mas nada impede múltiplas tentativas de adivinhar o token, além do próprio custo de cada tentativa falhar com 401).

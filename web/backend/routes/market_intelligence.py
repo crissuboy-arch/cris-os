@@ -110,3 +110,27 @@ async def receber_intelligence(request: Request):
 
     status_http = _STATUS_INTERNO_PARA_HTTP.get(resultado["status"], 200)
     return JSONResponse(status_code=status_http, content=resultado)
+
+
+@router.get("/integrations/scalaflow/intelligence/{handoff_id}/status")
+async def status_intelligence(handoff_id: str, request: Request):
+    """
+    Consulta autenticada e SOMENTE LEITURA do estado de um handoff já
+    recebido -- nunca cria, aprova ou executa nada (ver
+    `core/scalaflow_bridge.py:montar_status`, a mesma lógica reutilizável
+    de qualquer outro consumidor). Nunca inclui segredo/token na resposta.
+
+    404 -- nenhum handoff com esse id foi recebido.
+    """
+    _require_integration_token(request)
+
+    from core.scalaflow_bridge import montar_status
+    from memory.project_brain import PendingApprovalStore
+
+    brain_store, handoff_store = _obter_stores()
+    pending_store = PendingApprovalStore(brain_store.project_memory)
+
+    status = montar_status(handoff_id, brain_store, handoff_store, pending_store)
+    if status is None:
+        raise HTTPException(status_code=404, detail="Nenhum handoff encontrado com este id.")
+    return JSONResponse(status_code=200, content=status)

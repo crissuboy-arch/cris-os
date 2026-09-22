@@ -21,9 +21,12 @@ clara em vez de aplicar qualquer coisa às cegas.
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 
 from core.approval_gate import eh_aprovacao, eh_rejeicao
+
+logger = logging.getLogger(__name__)
 
 
 def _agora() -> str:
@@ -170,15 +173,64 @@ def resolver_aprovacao_contextual(texto: str, session: str, pending_store, brain
             f"Projeto: {project_id} | Status: APPROVED | Modo: EXTERNAL_EXECUTION_DISABLED"
         )
     if artefato_tipo == "BUSINESS_PLAN":
-        return (
-            "Plano de negócio aprovado.\n\n"
-            f"Projeto: {project_id}\n"
-            "Status: APPROVED\n"
-            "Nenhum conteúdo, ativo ou campanha foi criado/publicado "
-            "automaticamente -- produção de ativos pertence a outro sistema "
-            "(fora desta fase)."
-        )
+        return _apos_business_plan_aprovado(brain, project_id, session, pending_store, brain_store)
     return f"{info['nome_legivel'].capitalize()} aprovado(a).\n\nProjeto: {project_id}\nStatus: APPROVED"
+
+
+def _apos_business_plan_aprovado(brain, project_id: str, session: str, pending_store, brain_store) -> str:
+    """
+    Continuação da orquestração (pedido explícito da integração ScalaFlow --
+    ver `core/scalaflow_bridge.py`): assim que um BusinessPlan é aprovado
+    por este router, o Execution Engine (Fase 8, `core/execution_engine.py`,
+    SEM alteração) já pode gerar o ExecutionPlan + Tasks a partir dele --
+    nunca EXECUTA nada (`executar_plano` não é chamado aqui), só estrutura
+    o plano e registra uma NOVA aprovação pendente (EXECUTION_PLAN), pelo
+    MESMO mecanismo central.
+
+    Idempotente: se este projeto já tem um `execution_plan` (ex.: reprocesso
+    de uma aprovação, ou criado manualmente antes), NUNCA gera um segundo --
+    só relata o que já existe.
+    """
+    from core.execution_engine import avaliar_prontidao_execucao, criar_execution_plan, detectar_ciclo
+
+    base = (
+        "Plano de negócio aprovado.\n\n"
+        f"Projeto: {project_id}\n"
+        "Status: APPROVED\n"
+        "Nenhum conteúdo, ativo ou campanha foi criado/publicado "
+        "automaticamente -- produção de ativos pertence a outro sistema "
+        "(fora desta fase)."
+    )
+
+    if brain.execution_plan is not None:
+        return base + (
+            f"\n\nJá existe um plano de execução para este projeto "
+            f"(execução: {brain.execution_plan.execution_id}, status: "
+            f"{brain.execution_plan.status}) -- nada foi duplicado."
+        )
+
+    lacunas = avaliar_prontidao_execucao(brain, "BUSINESS_PLAN")
+    if lacunas:
+        # Nunca deveria acontecer logo após aprovar o próprio BusinessPlan,
+        # mas o gate central é sempre respeitado -- nunca força um
+        # ExecutionPlan sem o artefato de origem genuinamente aprovado.
+        return base + "\n\n" + "; ".join(lacunas)
+
+    plano = criar_execution_plan(brain, objetivo=f"Executar o plano de negócio aprovado do projeto {project_id}", source_artifact_type="BUSINESS_PLAN")
+    if detectar_ciclo(plano.tasks):
+        logger.warning("=== [APPROVAL_ROUTER] ExecutionPlan com dependência circular descartado (projeto %s) ===", project_id)
+        return base
+
+    brain.execution_plan = plano
+    brain.registrar_run("execution_engine", f"Criou plano de execução (status {plano.status}) após aprovação do plano de negócio.")
+    brain_store.save(brain)
+    pending_store.set_pending(session, project_id, "EXECUTION_PLAN", "APPROVE")
+
+    return base + (
+        f"\n\nUm plano de execução com {len(plano.tasks)} tarefa(s) foi criado "
+        f"e está aguardando aprovação (execução: {plano.execution_id}). "
+        'Responda "Aprovado" para liberá-lo -- nenhuma tarefa é executada antes disso.'
+    )
 
 
 def _resolver_aprovacao_task(texto: str, pendente: dict, pending_store, brain_store, session: str) -> str:

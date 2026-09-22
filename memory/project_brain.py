@@ -1208,11 +1208,16 @@ class PendingApprovalStore:
     def set_pending(
         self, session: str, project_id: str, artifact_type: str,
         action: str = "APPROVE", task_id: str | None = None,
+        handoff_id: str | None = None,
     ) -> None:
         """`task_id` (Fase 8) e opcional -- so usado quando `artifact_type`
         e "EXECUTION_TASK" (a Task nao e um atributo direto do
         ProjectBrain, entao precisa desse identificador extra pra
-        `core/approval_router.py` localiza-la sem ambiguidade)."""
+        `core/approval_router.py` localiza-la sem ambiguidade). `handoff_id`
+        (integracao ScalaFlow) e opcional -- quando a pendencia se origina
+        de um `MarketIntelligenceHandoff`, registra o vinculo explicito
+        project_id+handoff_id na propria pendencia (nunca so implicito via
+        lookup), para auditoria/rastreabilidade sem ambiguidade."""
         if not session:
             return  # sem sessao -- nao persiste as cegas (mesmo principio do UserFocusStore)
         payload = json.dumps({
@@ -1220,6 +1225,7 @@ class PendingApprovalStore:
             "artifact_type": artifact_type,
             "action": action,
             "task_id": task_id,
+            "handoff_id": handoff_id,
             "created_at": _agora(),
         }, ensure_ascii=False)
         item = KnowledgeItem(

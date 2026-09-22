@@ -198,3 +198,47 @@ def test_endpoint_nunca_faz_chamada_http_externa(client, brain_store, token, mon
 
     r = client.post(URL, json=_payload(), headers={"Authorization": f"Bearer {token}"})
     assert r.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# GET .../status -- consulta autenticada, somente leitura (Seção 6 da missão)
+# ---------------------------------------------------------------------------
+
+def _status_url(handoff_id: str) -> str:
+    return f"{URL}/{handoff_id}/status"
+
+
+def test_status_sem_token_devolve_503(client, brain_store, monkeypatch):
+    monkeypatch.setattr(settings, "CRIS_OS_INTEGRATION_TOKEN", "")
+    r = client.get(_status_url("qualquer"))
+    assert r.status_code == 503
+
+
+def test_status_sem_header_devolve_401(client, brain_store, token):
+    r = client.get(_status_url("qualquer"))
+    assert r.status_code == 401
+
+
+def test_status_handoff_inexistente_devolve_404(client, brain_store, token):
+    r = client.get(_status_url("nao_existe"), headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 404
+
+
+def test_status_handoff_existente_devolve_dados_reais(client, brain_store, token):
+    r1 = client.post(URL, json=_payload(), headers={"Authorization": f"Bearer {token}"})
+    project_id = r1.json()["project_id"]
+
+    r2 = client.get(_status_url("handoff_api_test_1"), headers={"Authorization": f"Bearer {token}"})
+    assert r2.status_code == 200
+    corpo = r2.json()
+    assert corpo["handoff_id"] == "handoff_api_test_1"
+    assert corpo["project_id"] == project_id
+    assert corpo["business_plan"] == {"id": None, "status": None}
+    assert corpo["execution_plan"] == {"id": None, "status": None}
+    assert corpo["tasks"] == {"total": 0, "pending": 0, "running": 0, "completed": 0, "failed": 0}
+
+
+def test_status_nunca_expoe_token(client, brain_store, token):
+    client.post(URL, json=_payload(), headers={"Authorization": f"Bearer {token}"})
+    r = client.get(_status_url("handoff_api_test_1"), headers={"Authorization": f"Bearer {token}"})
+    assert token.lower() not in r.text.lower()

@@ -148,7 +148,15 @@ def test_aprovado_aprova_somente_business_plan_pendente(monkeypatch, brain_store
     recarregado = brain_store.load(brain.project_id)
     assert recarregado.business_plan.approval_status == "APPROVED"
     assert recarregado.business_plan.esta_aprovado() is True
-    assert pending_store.get_pending("telegram:1") is None
+    # A pendencia do BUSINESS_PLAN foi consumida, mas a aprovacao encadeia
+    # automaticamente a criacao do ExecutionPlan (integracao ScalaFlow --
+    # ver core/approval_router.py:_apos_business_plan_aprovado), que registra
+    # sua PROPRIA pendencia -- por isso nao fica None, e sim EXECUTION_PLAN.
+    nova_pendencia = pending_store.get_pending("telegram:1")
+    assert nova_pendencia is not None
+    assert nova_pendencia["artifact_type"] == "EXECUTION_PLAN"
+    assert recarregado.execution_plan is not None
+    assert recarregado.execution_plan.status == "READY_FOR_APPROVAL"
 
 
 def test_rejeitado_rejeita_somente_business_plan_pendente(monkeypatch, brain_store, pending_store):
