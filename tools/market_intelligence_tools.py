@@ -44,6 +44,26 @@ _FRASES_AVANCAR = (
 )
 _PADRAO_HANDOFF_ID = re.compile(r"\b(?:ho_|handoff_)[A-Za-z0-9_]+\b")
 
+# Consulta de produção (WorkOrders -- ver core/production_orders.py). SOMENTE
+# LEITURA -- nunca despacha nada para PageForge/Pink Logic/etc., mesmo que a
+# pessoa peça explicitamente "envie para produção" (essa frase não está
+# nesta lista de propósito).
+_FRASES_PRODUCAO = (
+    "o que falta produzir", "quais ativos faltam", "produção necessária",
+    "producao necessaria", "status da produção", "status da producao",
+    "ordens de produção", "ordens de producao", "work orders", "workorders",
+)
+_NOME_LEGIVEL_EXECUTOR = {
+    "APP_BUILDER": "Criador-de-App", "PAGEFORGE": "PageForge", "PINK_LOGIC": "Pink Logic",
+    "FORGEHUB": "ForgeHub", "NEXORA": "NEXORA", "NEEDS_ROUTING": "(sem executor definido)",
+}
+_ROTULO_STATUS_PRODUCAO = {
+    "READY": "aguardando integração/envio", "NEEDS_ROUTING": "sem executor conhecido -- precisa de classificação manual",
+    "WAITING_APPROVAL": "aguardando aprovação", "DISPATCHED": "enviado ao executor",
+    "RUNNING": "em produção", "COMPLETED": "concluído", "FAILED": "falhou", "CANCELLED": "cancelado",
+    "CREATED": "criado, ainda não roteado",
+}
+
 
 def _extrair_handoff_id(texto_original: str, brain: ProjectBrain | None) -> str | None:
     encontrado = _PADRAO_HANDOFF_ID.search(texto_original)
@@ -65,6 +85,33 @@ def _resolver_projeto(session: str) -> ProjectBrain | str:
     if not brain:
         return "Não consegui recuperar o projeto em foco."
     return brain
+
+
+def _formatar_producao(brain: ProjectBrain) -> str:
+    """SOMENTE LEITURA -- nunca despacha nada, mesmo que a pergunta pareça
+    pedir isso (a lista de frases desta consulta não inclui nenhuma que
+    signifique 'enviar'/'executar')."""
+    ordens = brain.production_work_orders
+    if not ordens:
+        return (
+            f"Ainda não há ordens de produção registradas para este projeto.\n\n"
+            f"Projeto: {brain.project_id}\n"
+            "(Isso é esperado até a task de preparação de ativos ser concluída "
+            "no plano de execução.)"
+        )
+
+    linhas = [f"{brain.identidade.name}", "", "Produção necessária:"]
+    for wo in ordens:
+        executor = _NOME_LEGIVEL_EXECUTOR.get(wo.executor_type, wo.executor_type)
+        rotulo_status = _ROTULO_STATUS_PRODUCAO.get(wo.status, wo.status)
+        linhas.append(f"  {wo.title} → {executor} → {rotulo_status}")
+    linhas.append("")
+    linhas.append(f"Projeto: {brain.project_id}")
+    linhas.append(
+        "Nenhum executor foi acionado -- isto é só uma consulta. Nenhuma "
+        "ordem avança sozinha para além de READY nesta fase."
+    )
+    return "\n".join(linhas)
 
 
 def _formatar_intelligence(brain: ProjectBrain) -> str:
@@ -139,6 +186,12 @@ def gerenciar_market_intelligence(entrada: str, session: str = "") -> str:
         resultado = avancar_a_partir_do_handoff(handoff_id, store, handoff_store, pending_store, session=session)
         return _mensagem_resultado(resultado)
 
+    if any(f in texto for f in _FRASES_PRODUCAO):
+        brain = _resolver_projeto(session)
+        if isinstance(brain, str):
+            return brain
+        return _formatar_producao(brain)
+
     brain = _resolver_projeto(session)
     if isinstance(brain, str):
         return brain
@@ -150,9 +203,10 @@ def get_tools() -> list[Tool]:
         Tool(
             "market_intelligence",
             "Mostra a inteligência de mercado (ScalaFlow) já recebida e "
-            "persistida para o projeto em foco, e avança/retoma um projeto "
-            "a partir de um handoff já persistido (sem novo handoff)",
-            list(_FRASES_INTELLIGENCE) + list(_FRASES_AVANCAR),
+            "persistida para o projeto em foco, avança/retoma um projeto "
+            "a partir de um handoff já persistido (sem novo handoff), e "
+            "consulta ordens de produção pendentes (sem despachar nada)",
+            list(_FRASES_INTELLIGENCE) + list(_FRASES_AVANCAR) + list(_FRASES_PRODUCAO),
             gerenciar_market_intelligence,
         ),
     ]

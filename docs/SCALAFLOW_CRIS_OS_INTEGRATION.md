@@ -243,7 +243,79 @@ extensão documentado — nenhuma dependência de Jev existe no código hoje.
 autenticação `Authorization: Bearer <CRIS_OS_INTEGRATION_TOKEN>` do POST.
 Devolve o snapshot de `core.scalaflow_bridge.montar_status` (project_id,
 status do BusinessPlan/aprovação pendente/ExecutionPlan/contagem de tasks,
-último erro) — nunca inclui segredo algum.
+contagem de `production` (WorkOrders), último erro) — nunca inclui segredo
+algum.
+
+## Cris OS → executores especializados (`ProductionWorkOrder`)
+
+A Task 3 do Execution Engine ("Preparar handoff de ativos necessários",
+`core/execution_engine.py`, SEM alteração) já especifica `required_assets`
+(ex.: "Landing page com prova social") — mas até esta fase nada transformava
+essa especificação em algo endereçável a um executor real. Esta camada fecha
+esse gap, mantendo o Cris OS como ORQUESTRADOR (nunca um construtor de
+landing pages/gerador de criativos/CRM):
+
+```
+ScalaFlow → Cris OS → BusinessPlan → ExecutionPlan → Task 3 (COMPLETED)
+        │
+        ▼
+core.production_orders.gerar_work_orders_da_task  (novo)
+        │  para cada item de task.evidence (= required_assets):
+        ├─ core.production_router.normalizar_asset_type  (novo, determinístico)
+        │     texto livre -> asset_type (vocabulário fechado)
+        ├─ core.production_router.resolver_executor  (novo, tabela fixa)
+        │     asset_type -> executor_type
+        └─ memory.project_brain.ProductionWorkOrder  (novo, persistido no
+              MESMO ProjectBrain -- `brain.production_work_orders`)
+              status inicial: READY (ou NEEDS_ROUTING se o asset_type não
+              mapear para nenhum executor conhecido)
+        ▼
+core.executor_adapter.ExecutorAdapter  (novo -- CONTRATO, protocol)
+        │  can_handle / dispatch / get_status / collect_result
+        ▼
+  EXECUTOR_REGISTRY  (novo -- hoje, todo executor_type aponta para o MESMO
+                       stub `AdapterNaoConectado`, que NUNCA marca
+                       DISPATCHED nem finge produção concluída)
+```
+
+**Mapeamento inicial de executores** (Seção 3 da missão):
+
+| asset_type | executor_type | Executor real (futuro) |
+|---|---|---|
+| `APP` | `APP_BUILDER` | Criador-de-App |
+| `LANDING_PAGE` | `PAGEFORGE` | PageForge |
+| `EBOOK` / `CAROUSEL` / `MARKETING_MATERIAL` | `PINK_LOGIC` | Pink Logic |
+| `DISTRIBUTION` | `FORGEHUB` | ForgeHub |
+| `CRM` | `NEXORA` | NEXORA |
+| `UNKNOWN` | `NEEDS_ROUTING` | (nenhum -- precisa de classificação manual) |
+
+**Nesta fase, NENHUM executor real é chamado.** `AdapterNaoConectado.dispatch()`
+devolve a WorkOrder inalterada — nenhuma chamada HTTP, nenhuma integração.
+Conectar um executor real (fase futura, fora desta missão) significa:
+implementar `ExecutorAdapter` para aquele executor e substituir sua entrada
+em `core.executor_adapter.EXECUTOR_REGISTRY` — nenhuma mudança de contrato
+em `ProductionWorkOrder`/`production_router`/`production_orders` necessária.
+
+**Identidade preservada**: toda `ProductionWorkOrder` carrega
+`handoff_id`/`project_id`/`execution_plan_id`/`source_task_id` explícitos —
+nunca um ID solto. `global_project_id` existe como campo reservado (sempre
+`None` hoje) para uma futura identidade cross-sistema, sem quebrar
+`project_id` como identidade canônica atual.
+
+**Idempotência**: a chave lógica `(execution_plan_id, source_task_id,
+asset_type normalizado)` nunca gera uma segunda WorkOrder para o mesmo
+requisito — reprocessar a Task 3, reiniciar o processo ou repetir "execute o
+plano" sempre reaproveita as WorkOrders já existentes.
+
+**Consulta pelo Telegram**: frases como "o que falta produzir?"/"quais
+ativos faltam?"/"status da produção" (`tools/market_intelligence_tools.py`)
+mostram as WorkOrders e seus executores — nunca despacham nada, mesmo que a
+pergunta pareça pedir isso.
+
+**Ponto de extensão futuro — Decision Gate/Jev (não implementado)**: o mesmo
+ponto de extensão documentado acima (interceptar antes de `propor_produto`)
+também poderia, no futuro, decidir automaticamente QUANDO despachar uma
+WorkOrder `READY` para seu executor — hoje isso nunca acontece sozinho.
 
 ## Limitações conhecidas
 

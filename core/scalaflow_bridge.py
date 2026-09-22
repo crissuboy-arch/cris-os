@@ -375,6 +375,7 @@ def montar_status(handoff_id: str, brain_store, handoff_store, pending_store, se
             "approval": {"artifact_type": None, "status": "NONE"},
             "execution_plan": {"id": None, "status": None},
             "tasks": {"total": 0, "pending": 0, "running": 0, "completed": 0, "failed": 0},
+            "production": {"total": 0, "ready": 0, "dispatched": 0, "running": 0, "completed": 0, "failed": 0, "needs_routing": 0, "work_orders": []},
             "last_error": "Projeto referenciado pelo handoff não foi encontrado no Project Brain.",
             "updated_at": indice.get("registered_at"),
         }
@@ -408,6 +409,34 @@ def montar_status(handoff_id: str, brain_store, handoff_store, pending_store, se
         tasks_info = {"total": 0, "pending": 0, "running": 0, "completed": 0, "failed": 0}
         erro_task = None
 
+    ordens = brain.production_work_orders
+    contagem_producao = {"READY": 0, "DISPATCHED": 0, "RUNNING": 0, "COMPLETED": 0, "FAILED": 0, "NEEDS_ROUTING": 0}
+    for wo in ordens:
+        if wo.status in contagem_producao:
+            contagem_producao[wo.status] += 1
+    production_info = {
+        "total": len(ordens),
+        "ready": contagem_producao["READY"],
+        "dispatched": contagem_producao["DISPATCHED"],
+        "running": contagem_producao["RUNNING"],
+        "completed": contagem_producao["COMPLETED"],
+        "failed": contagem_producao["FAILED"],
+        "needs_routing": contagem_producao["NEEDS_ROUTING"],
+        "work_orders": [
+            {
+                "work_order_id": wo.work_order_id,
+                "asset_type": wo.asset_type,
+                "executor_type": wo.executor_type,
+                "status": wo.status,
+                "source_task_id": wo.source_task_id,
+                "output_refs": list(wo.output_refs),
+                "last_error": wo.last_error,
+            }
+            for wo in ordens
+        ],
+    }
+    erro_producao = next((wo.last_error for wo in ordens if wo.status == "FAILED" and wo.last_error), None)
+
     return {
         "handoff_id": handoff_id,
         "project_id": brain.project_id,
@@ -417,6 +446,7 @@ def montar_status(handoff_id: str, brain_store, handoff_store, pending_store, se
         "approval": approval_info,
         "execution_plan": execution_plan_info,
         "tasks": tasks_info,
-        "last_error": erro_task,
+        "production": production_info,
+        "last_error": erro_task or erro_producao,
         "updated_at": brain.identidade.updated_at,
     }

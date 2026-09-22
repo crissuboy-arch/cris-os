@@ -73,6 +73,18 @@ def _sincronizar_pendencia_task(session: str, project_id: str, task: Task) -> No
         )
 
 
+def _sincronizar_producao(brain: ProjectBrain) -> None:
+    """Integração aditiva (ponte Cris OS -> executores especializados):
+    depois de processar o plano, materializa `ProductionWorkOrder`s
+    idempotentes a partir de qualquer task de "handoff de ativos" já
+    concluída -- ver `core/production_orders.py`. NUNCA despacha nada
+    externo, NUNCA executa a Task 4 -- só cria/reaproveita as ordens
+    internas rastreáveis."""
+    from core.production_orders import sincronizar_producao_do_plano
+
+    sincronizar_producao_do_plano(brain)
+
+
 def _contains_any(texto: str, frases: tuple) -> bool:
     return any(f in texto for f in frases)
 
@@ -228,6 +240,7 @@ def gerenciar_execucao(entrada: str, session: str = "") -> str:
         if ok:
             plan = executar_plano(brain)
             brain.registrar_run("execution_engine", f"Execução retomada (status {plan.status})")
+            _sincronizar_producao(brain)
             store.save(brain)
             for t in plan.tasks:
                 _sincronizar_pendencia_task(session, brain.project_id, t)
@@ -262,6 +275,7 @@ def gerenciar_execucao(entrada: str, session: str = "") -> str:
     if plan.esta_liberado_para_rodar():
         plan = executar_plano(brain)
         brain.registrar_run("execution_engine", f"Processou plano de execução (status {plan.status})")
+        _sincronizar_producao(brain)
         store.save(brain)
         for t in plan.tasks:
             _sincronizar_pendencia_task(session, brain.project_id, t)

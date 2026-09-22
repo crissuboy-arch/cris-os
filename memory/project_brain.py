@@ -826,6 +826,100 @@ def novo_handoff_id() -> str:
     return "handoff_" + uuid.uuid4().hex[:12]
 
 
+def novo_work_order_id() -> str:
+    return "wo_" + uuid.uuid4().hex[:12]
+
+
+# ---------------------------------------------------------------------------
+# ProductionWorkOrder -- ponte Cris OS -> executores especializados
+# (PageForge, Pink Logic, Criador-de-App, ForgeHub, NEXORA). NENHUM desses
+# executores e chamado por este modulo -- e so o CONTRATO de dados canonico
+# que permitira conecta-los depois, sem reconstruir nada existente.
+# ---------------------------------------------------------------------------
+
+# Vocabulario FECHADO de estados. "NEEDS_ROUTING" existe quando o
+# `asset_type` normalizado nao mapeia para nenhum executor conhecido --
+# nunca inventa um executor so pra "resolver" algo ambiguo. Nesta fase,
+# NENHUMA WorkOrder avanca alem de READY (nenhum executor real conectado
+# ainda) -- DISPATCHED/RUNNING/COMPLETED/FAILED existem para quando um
+# adapter real existir (ver `core/executor_adapter.py`).
+PRODUCTION_WORK_ORDER_ESTADOS_VALIDOS = frozenset({
+    "CREATED", "READY", "WAITING_APPROVAL", "DISPATCHED", "RUNNING",
+    "COMPLETED", "FAILED", "CANCELLED", "NEEDS_ROUTING",
+})
+
+# Vocabulario FECHADO de asset_type -- normalizado a partir do texto livre
+# de `required_assets` (ver `core/production_router.py:normalizar_asset_type`).
+# "UNKNOWN" e o unico valor que NUNCA mapeia para um executor (vira sempre
+# NEEDS_ROUTING).
+PRODUCTION_ASSET_TYPES_VALIDOS = frozenset({
+    "APP", "LANDING_PAGE", "EBOOK", "CAROUSEL", "MARKETING_MATERIAL",
+    "DISTRIBUTION", "CRM", "UNKNOWN",
+})
+
+# Vocabulario FECHADO de executor_type (Secao 3 da missao -- mapeamento
+# inicial). "NEEDS_ROUTING" nao e um executor de verdade -- e o sinal
+# explicito de "ninguem sabe processar isto ainda".
+PRODUCTION_EXECUTOR_TYPES_VALIDOS = frozenset({
+    "APP_BUILDER", "PAGEFORGE", "PINK_LOGIC", "FORGEHUB", "NEXORA", "NEEDS_ROUTING",
+})
+
+
+@dataclass
+class ProductionWorkOrder:
+    """
+    Ordem de produção interna e rastreável (Secao 1 da missao) -- transforma
+    UM item de `required_assets` (BusinessPlan/Task) numa unidade de
+    trabalho endereçável a um executor especializado externo, sem o Cris OS
+    nunca virar ele mesmo um construtor de landing page/gerador de
+    criativos/etc.
+
+    Identidade preservada, ponta a ponta: `handoff_id` -> `project_id` ->
+    `execution_plan_id` -> `source_task_id` -> esta WorkOrder -> (futuro)
+    executor -> resultado. `global_project_id` é um campo RESERVADO (Secao 2
+    -- preparo explícito para uma identidade cross-sistema futura, sem
+    quebrar nada hoje); `project_id` continua sendo a identidade canônica
+    real usada em todo o resto do sistema.
+    """
+
+    work_order_id: str = field(default_factory=novo_work_order_id)
+    project_id: str = ""
+    global_project_id: str | None = None  # reservado para evolução futura -- nao usado ainda
+    handoff_id: str | None = None
+    execution_plan_id: str | None = None
+    source_task_id: str | None = None
+
+    asset_type: str = "UNKNOWN"  # ver PRODUCTION_ASSET_TYPES_VALIDOS
+    executor_type: str = "NEEDS_ROUTING"  # ver PRODUCTION_EXECUTOR_TYPES_VALIDOS
+
+    title: str = ""
+    objective: str | None = None
+    requirements: list[str] = field(default_factory=list)  # texto original (nunca perdido na normalização)
+
+    input_refs: list[str] = field(default_factory=list)
+    output_refs: list[str] = field(default_factory=list)  # ver core/executor_adapter.py para o contrato de retorno
+
+    status: str = "CREATED"  # ver PRODUCTION_WORK_ORDER_ESTADOS_VALIDOS
+    requires_approval: bool = False
+    approved: bool = False
+    approved_at: str | None = None
+
+    created_at: str = field(default_factory=_agora)
+    updated_at: str = field(default_factory=_agora)
+
+    attempts: int = 0
+    last_error: str | None = None
+
+    metadata: dict = field(default_factory=dict)  # provenance -- ex.: {"origem": "task_required_assets", "requisito_original": "..."}
+
+    def esta_pronta_para_dispatch(self) -> bool:
+        """`READY` e o único estado desta fase em que um FUTURO executor
+        poderia legitimamente receber trabalho -- `NEEDS_ROUTING` nunca é
+        despachável (ninguém sabe processar), e estados posteriores
+        (`DISPATCHED`+) significam que já foi (ou está sendo) processada."""
+        return self.status == "READY" and not (self.requires_approval and not self.approved)
+
+
 # Vocabulario FECHADO de "verification before trust" (Fase 9) -- toda
 # evidencia/afirmacao vinda do ScalaFlow precisa ser classificada, nunca
 # aceita como fato so porque foi afirmada.
@@ -953,6 +1047,7 @@ class ProjectBrain:
     performance_snapshots: list[PerformanceSnapshot] = field(default_factory=list)
     execution_plan: ExecutionPlan | None = None
     market_intelligence: list[MarketIntelligenceHandoff] = field(default_factory=list)
+    production_work_orders: list[ProductionWorkOrder] = field(default_factory=list)
     artifact_manifest: dict | None = None
     brand: Brand = field(default_factory=Brand)
     assets: Assets = field(default_factory=Assets)
@@ -993,6 +1088,7 @@ class ProjectBrain:
             performance_snapshots=[PerformanceSnapshot(**s) for s in d.get("performance_snapshots", [])],
             execution_plan=execution_plan,
             market_intelligence=[MarketIntelligenceHandoff(**h) for h in d.get("market_intelligence", [])],
+            production_work_orders=[ProductionWorkOrder(**w) for w in d.get("production_work_orders", [])],
             artifact_manifest=d.get("artifact_manifest"),
             brand=Brand(**d.get("brand", {})),
             assets=Assets(**d.get("assets", {})),
