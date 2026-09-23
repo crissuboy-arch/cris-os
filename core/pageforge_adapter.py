@@ -9,9 +9,7 @@ https://pageforge-ai-woad.vercel.app):
     GET  /api/integrations/cris-os/work-orders/{work_order_id}
 
 NENHUMA chamada real acontece automaticamente -- nada no resto do Cris OS
-chama `PageForgeAdapter.dispatch()` sozinho. O primeiro dispatch real de
-`wo_d0ad992898fe` (WorkOrder da Carla) é uma decisão humana explícita, fora
-desta missão.
+chama `PageForgeAdapter.dispatch()` sozinho.
 
 AUTENTICAÇÃO: `Authorization: Bearer <PAGEFORGE_BRIDGE_TOKEN>` -- mesmo
 padrão já usado por `CRIS_OS_INTEGRATION_TOKEN` neste repositório
@@ -20,11 +18,23 @@ precisa ter EXATAMENTE o mesmo valor configurado na Vercel do PageForge
 como `CRIS_OS_BRIDGE_TOKEN`. O token NUNCA é logado, incluído em
 `last_error`, em `metadata` ou em qualquer resposta.
 
-AVISO HONESTO: o formato exato do payload/resposta abaixo é o desenho MAIS
-PROVÁVEL a partir do contrato descrito (nenhuma chamada real foi feita para
-confirmar nomes de campo exatos -- esta missão NUNCA chama a API de
-verdade). Antes do primeiro dispatch real, confirme `_montar_payload`/
-`_CAMPOS_OUTPUT_CANDIDATOS` contra o contrato real do PageForge.
+CONTRATO CONFIRMADO (lido do código-fonte real do PageForge, não mais
+especulado): o `POST` é SÍNCRONO -- ele roda o pipeline completo (mapear
+briefing -> gerar página -> publicar) e só então responde. O corpo 2xx já
+contém o resultado real:
+    { ok, work_order_id, project_id, executor, status,
+      received_at, updated_at, completed_at?, error?, artifact?, idempotent? }
+`status` é um de RECEIVED/RUNNING/NEEDS_INPUT/FAILED/COMPLETED -- NUNCA
+existe um `job_id` separado (a chave é sempre o próprio `work_order_id`,
+tanto para persistir quanto para consultar). `error` é um objeto
+`{code, message, missing?}`. `artifact` (quando existe) contém
+`artifact_id`/`artifact_type`/`page_id`/`version`/`checksum` e,
+condicionalmente, `preview_url`/`deployment_url`.
+
+O mesmo formato de corpo é devolvido pelo `GET` de status -- por isso
+`dispatch()` e `collect_result()` reaproveitam a MESMA função de
+interpretação (`_aplicar_resultado_pageforge`), nunca duas lógicas
+paralelas para o mesmo contrato.
 
 IDEMPOTÊNCIA: `work_order.work_order_id` é enviado tanto no corpo quanto no
 header `Idempotency-Key` -- nunca um ID novo é gerado por tentativa, e
@@ -39,6 +49,9 @@ vocabulário do Cris OS não tem equivalente exato):
                          `core.production_orders.pode_marcar_completed`)
     FAILED            -> FAILED
     NEEDS_INPUT       -> WAITING_APPROVAL
+Um `status` ausente/não reconhecido (compatibilidade defensiva com um
+ambiente antigo/resposta inesperada) NUNCA vira `COMPLETED` -- cai no
+mesmo fallback seguro já usado antes desta correção (`DISPATCHED`).
 """
 
 from __future__ import annotations
@@ -64,11 +77,12 @@ _MAPA_STATUS_PAGEFORGE = {
     "NEEDS_INPUT": "WAITING_APPROVAL",
 }
 
-# Campos candidatos de resultado -- qualquer um presente na resposta vira
-# um output_ref rastreável ("campo:valor"). Ver AVISO HONESTO no docstring.
+# Campos reais do objeto `artifact` (confirmados no código-fonte do
+# PageForge, `api/integrations/cris-os/work-orders.js`) -- qualquer um
+# presente vira um output_ref rastreável ("campo:valor").
 _CAMPOS_OUTPUT_CANDIDATOS = (
-    "artifact_id", "repository_url", "preview_url", "deployment_url",
-    "file_ref", "version", "checksum", "executor_job_id",
+    "artifact_id", "artifact_type", "page_id", "version", "checksum",
+    "preview_url", "deployment_url",
 )
 
 
@@ -102,6 +116,67 @@ def _headers() -> dict:
     }
 
 
+def _extrair_output_refs(artifact: object) -> list[str]:
+    if not isinstance(artifact, dict):
+        return []
+    return [f"{campo}:{artifact[campo]}" for campo in _CAMPOS_OUTPUT_CANDIDATOS if artifact.get(campo)]
+
+
+def _extrair_mensagem_erro(erro: object) -> str:
+    if isinstance(erro, dict):
+        partes = [str(erro[campo]) for campo in ("code", "message") if erro.get(campo)]
+        texto = ": ".join(partes) if partes else "PageForge reportou falha."
+        faltando = erro.get("missing")
+        if faltando:
+            texto += " (faltando: " + ", ".join(str(x) for x in faltando) + ")"
+        return texto
+    return str(erro) if erro else "PageForge reportou falha."
+
+
+def _aplicar_resultado_pageforge(work_order: ProductionWorkOrder, corpo: dict) -> bool:
+    """
+    Interpreta o corpo JSON de uma resposta 2xx do PageForge -- MESMO
+    formato tanto na resposta síncrona do `POST` quanto no `GET` de status
+    (ver docstring do módulo). Nunca inventa: um `status` ausente/não
+    reconhecido NÃO altera `work_order.status` aqui -- cada chamador
+    (`dispatch`/`collect_result`) decide seu próprio fallback seguro
+    (comportamento pré-existente de cada um, preservado). `COMPLETED` só é
+    aceito com output real (gate reaproveitado de
+    `core/production_orders.py`, não duplicado).
+
+    Devolve `True` se um status reconhecido foi aplicado, `False` caso
+    contrário (status ausente/desconhecido).
+    """
+    status_bruto = str(corpo.get("status") or "").upper()
+    if status_bruto:
+        work_order.metadata["pageforge_status"] = status_bruto  # nunca perde a informação original
+
+    outputs = _extrair_output_refs(corpo.get("artifact"))
+    if outputs:
+        work_order.output_refs = outputs
+
+    novo_status = _MAPA_STATUS_PAGEFORGE.get(status_bruto)
+
+    if novo_status == "COMPLETED":
+        if pode_marcar_completed(work_order):
+            work_order.status = "COMPLETED"
+            work_order.last_error = None
+        else:
+            # PageForge disse "concluído" mas sem nenhum artefato
+            # reconhecível -- NUNCA aceita conclusão sem evidência.
+            work_order.status = "RUNNING"
+            work_order.last_error = "PageForge sinalizou conclusão sem nenhum artefato reconhecível na resposta."
+        return True
+
+    if novo_status:
+        work_order.status = novo_status
+        if corpo.get("error"):
+            work_order.last_error = _extrair_mensagem_erro(corpo.get("error"))
+        return True
+
+    return False  # status ausente/desconhecido -- chamador decide o fallback
+
+
 class PageForgeAdapter:
     """Implementação real de `ExecutorAdapter` (ver `core/executor_adapter.py`
     para o Protocol) para o executor PAGEFORGE."""
@@ -111,8 +186,11 @@ class PageForgeAdapter:
 
     def dispatch(self, work_order: ProductionWorkOrder) -> ProductionWorkOrder:
         """Envia a WorkOrder ao PageForge. NUNCA cria uma segunda WorkOrder
-        -- sempre modifica e devolve a MESMA instância. NUNCA marca
-        `COMPLETED` aqui (um 2xx só significa "aceito", não "concluído")."""
+        -- sempre modifica e devolve a MESMA instância. O `POST` do
+        PageForge é SÍNCRONO: o corpo 2xx já pode conter o resultado
+        terminal real (COMPLETED/FAILED/NEEDS_INPUT), interpretado por
+        `_aplicar_resultado_pageforge` -- nunca é forçado para
+        `DISPATCHED` às cegas quando o corpo já traz um status utilizável."""
         if not self.can_handle(work_order):
             work_order.last_error = f"PageForgeAdapter não processa executor_type={work_order.executor_type!r}."
             return work_order
@@ -158,15 +236,18 @@ class PageForgeAdapter:
             work_order.updated_at = _agora()
             return work_order
 
-        # 2xx -- ACEITO pelo PageForge, NUNCA concluído nesta chamada.
-        work_order.status = "DISPATCHED"
-        work_order.last_error = None
+        # 2xx -- corpo síncrono já pode trazer o resultado real.
         try:
             corpo = resposta.json()
         except ValueError:
             corpo = {}
-        if isinstance(corpo, dict) and corpo.get("job_id"):
-            work_order.metadata["pageforge_job_id"] = corpo["job_id"]
+        work_order.last_error = None
+        aplicado = _aplicar_resultado_pageforge(work_order, corpo if isinstance(corpo, dict) else {})
+        if not aplicado:
+            # Compatibilidade defensiva (Seção E): ambiente antigo/resposta
+            # sem status utilizável -- mesmo fallback seguro já documentado
+            # antes desta correção. NUNCA inventa COMPLETED.
+            work_order.status = "DISPATCHED"
         work_order.updated_at = _agora()
         return work_order
 
@@ -193,8 +274,8 @@ class PageForgeAdapter:
 
     def collect_result(self, work_order: ProductionWorkOrder) -> ProductionWorkOrder:
         """Consulta o PageForge e persiste SOMENTE resultado real -- nunca
-        marca `COMPLETED` sem pelo menos um output reconhecível (gate
-        reaproveitado de `core/production_orders.py`, não duplicado)."""
+        marca `COMPLETED` sem pelo menos um output reconhecível (mesmo gate
+        e mesma interpretação de corpo usados por `dispatch()`)."""
         if not _token_configurado():
             return work_order
 
@@ -220,27 +301,6 @@ class PageForgeAdapter:
             work_order.updated_at = _agora()
             return work_order
 
-        status_bruto = str(corpo.get("status", "")).upper()
-        work_order.metadata["pageforge_status"] = status_bruto  # nunca perde a informação original
-
-        outputs = [f"{campo}:{corpo[campo]}" for campo in _CAMPOS_OUTPUT_CANDIDATOS if corpo.get(campo)]
-        if outputs:
-            work_order.output_refs = outputs
-
-        novo_status = _MAPA_STATUS_PAGEFORGE.get(status_bruto)
-        if novo_status == "COMPLETED":
-            if pode_marcar_completed(work_order):
-                work_order.status = "COMPLETED"
-                work_order.last_error = None
-            else:
-                # PageForge disse "concluído" mas sem nenhum output
-                # reconhecível -- NUNCA aceita conclusão sem evidência.
-                work_order.status = "RUNNING"
-                work_order.last_error = "PageForge sinalizou conclusão sem nenhum artefato reconhecível na resposta."
-        elif novo_status:
-            work_order.status = novo_status
-            if novo_status == "FAILED":
-                work_order.last_error = str(corpo.get("error") or corpo.get("message") or "PageForge reportou falha.")
-
+        _aplicar_resultado_pageforge(work_order, corpo if isinstance(corpo, dict) else {})
         work_order.updated_at = _agora()
         return work_order

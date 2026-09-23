@@ -107,15 +107,13 @@ def test_sem_token_get_status_nao_chama_rede(monkeypatch):
 # Dispatch -- 2xx aceito, nunca COMPLETED
 # ---------------------------------------------------------------------------
 
-def test_dispatch_sucesso_marca_dispatched_nao_completed(monkeypatch):
-    capturado = {}
-
+def test_dispatch_sem_status_utilizavel_cai_no_fallback_dispatched(monkeypatch):
+    """Compatibilidade defensiva (Seção E): corpo 2xx sem `status`
+    reconhecível -- NUNCA finge COMPLETED, cai no mesmo fallback seguro
+    pré-existente. Não há `job_id` no contrato real do PageForge (a chave é
+    sempre `work_order_id`) -- nunca inventamos um."""
     def _fake_post(url, json, headers, timeout):
-        capturado["url"] = url
-        capturado["json"] = json
-        capturado["headers"] = headers
-        capturado["timeout"] = timeout
-        return FakeResponse(202, {"job_id": "pf_job_123"})
+        return FakeResponse(202, {})
     monkeypatch.setattr("requests.post", _fake_post)
 
     wo = _work_order()
@@ -124,7 +122,7 @@ def test_dispatch_sucesso_marca_dispatched_nao_completed(monkeypatch):
     assert resultado.status == "DISPATCHED"
     assert resultado.status != "COMPLETED"
     assert resultado.last_error is None
-    assert resultado.metadata["pageforge_job_id"] == "pf_job_123"
+    assert "pageforge_job_id" not in resultado.metadata
     assert resultado.attempts == 1
 
 
@@ -242,6 +240,77 @@ def test_dispatch_nao_redespacha_ordem_cancelada(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# POST é SÍNCRONO -- o corpo 2xx já traz o resultado real. dispatch() deve
+# interpretar status/artifact/error exatamente como collect_result().
+# ---------------------------------------------------------------------------
+
+def test_dispatch_post_sincrono_completed_com_artifact_e_reconhecido(monkeypatch):
+    monkeypatch.setattr("requests.post", lambda *a, **k: FakeResponse(200, {
+        "ok": True, "work_order_id": "wo_d0ad992898fe", "project_id": "proj_carla",
+        "executor": "PAGEFORGE", "status": "COMPLETED",
+        "received_at": "2026-09-23T00:00:00Z", "updated_at": "2026-09-23T00:00:05Z",
+        "completed_at": "2026-09-23T00:00:05Z",
+        "artifact": {
+            "artifact_id": "artf_cris-wo-d0ad992898fe", "artifact_type": "LANDING_PAGE",
+            "page_id": "cris-wo-d0ad992898fe", "version": "1", "checksum": "sha256deadbeef",
+            "preview_url": "https://pageforge-ai-woad.vercel.app/demo/cris-wo-d0ad992898fe",
+        },
+    }))
+    wo = _work_order()
+    resultado = PageForgeAdapter().dispatch(wo)
+
+    assert resultado.status == "COMPLETED"
+    assert resultado.last_error is None
+    assert any("artifact_id" in ref for ref in resultado.output_refs)
+    assert any("preview_url" in ref for ref in resultado.output_refs)
+    assert resultado.metadata["pageforge_status"] == "COMPLETED"
+
+
+def test_dispatch_post_sincrono_failed_com_error_e_reconhecido(monkeypatch):
+    monkeypatch.setattr("requests.post", lambda *a, **k: FakeResponse(200, {
+        "ok": True, "status": "FAILED",
+        "error": {"code": "GENERATION_FAILED", "message": "O gerador não produziu uma página válida."},
+    }))
+    wo = _work_order()
+    resultado = PageForgeAdapter().dispatch(wo)
+
+    assert resultado.status == "FAILED"
+    assert "GENERATION_FAILED" in resultado.last_error
+    assert "não produziu uma página válida" in resultado.last_error
+    assert resultado.output_refs == []
+
+
+def test_dispatch_post_sincrono_needs_input_e_reconhecido(monkeypatch):
+    monkeypatch.setattr("requests.post", lambda *a, **k: FakeResponse(200, {
+        "ok": True, "status": "NEEDS_INPUT",
+        "error": {
+            "code": "NEEDS_INPUT", "message": "Faltam informações indispensáveis no WorkOrder para gerar a página.",
+            "missing": ["offer", "audience"],
+        },
+    }))
+    wo = _work_order()
+    resultado = PageForgeAdapter().dispatch(wo)
+
+    assert resultado.status == "WAITING_APPROVAL"
+    assert resultado.metadata["pageforge_status"] == "NEEDS_INPUT"
+    assert "faltando" in resultado.last_error.lower()
+    assert "offer" in resultado.last_error and "audience" in resultado.last_error
+
+
+def test_dispatch_post_sincrono_completed_sem_artifact_nao_marca_completed(monkeypatch):
+    """Gate crítico: mesmo com status=COMPLETED vindo do POST, sem nenhum
+    artefato reconhecível a WorkOrder NUNCA é aceita como concluída de
+    verdade (mesmo gate usado em collect_result/production_orders)."""
+    monkeypatch.setattr("requests.post", lambda *a, **k: FakeResponse(200, {"status": "COMPLETED"}))
+    wo = _work_order()
+    resultado = PageForgeAdapter().dispatch(wo)
+
+    assert resultado.status != "COMPLETED"
+    assert resultado.status == "RUNNING"
+    assert resultado.last_error
+
+
+# ---------------------------------------------------------------------------
 # collect_result -- mapeamento de estados + gate de COMPLETED
 # ---------------------------------------------------------------------------
 
@@ -261,15 +330,23 @@ def test_collect_result_mapeia_estados_sem_perder_informacao(monkeypatch, status
 
 
 def test_collect_result_completed_com_output_real_marca_completed(monkeypatch):
+    # Formato REAL confirmado no código-fonte do PageForge: os campos do
+    # artefato vêm ANINHADOS em "artifact", nunca soltos no corpo.
     monkeypatch.setattr("requests.get", lambda *a, **k: FakeResponse(200, {
-        "status": "COMPLETED", "preview_url": "https://pageforge.exemplo.test/preview/abc",
-        "deployment_url": "https://minha-pagina.vercel.app",
+        "status": "COMPLETED",
+        "artifact": {
+            "artifact_id": "artf_cris-wo-carla", "artifact_type": "LANDING_PAGE",
+            "page_id": "cris-wo-carla", "version": "1", "checksum": "abc123",
+            "preview_url": "https://pageforge.exemplo.test/demo/cris-wo-carla",
+            "deployment_url": "https://minha-pagina.vercel.app",
+        },
     }))
     wo = _work_order(status="RUNNING")
     resultado = PageForgeAdapter().collect_result(wo)
     assert resultado.status == "COMPLETED"
     assert any("preview_url" in ref for ref in resultado.output_refs)
     assert any("deployment_url" in ref for ref in resultado.output_refs)
+    assert any("artifact_id" in ref for ref in resultado.output_refs)
     assert resultado.last_error is None
 
 
