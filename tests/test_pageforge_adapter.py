@@ -171,11 +171,14 @@ def test_dispatch_autenticacao_do_header_usa_bearer(monkeypatch):
 # Falhas tratadas -- nunca expõe token, nunca crasha, nunca finge sucesso
 # ---------------------------------------------------------------------------
 
-def test_dispatch_401_nunca_expoe_token_e_mantem_ready(monkeypatch):
+def test_dispatch_401_marca_failed_nunca_expoe_token(monkeypatch):
+    """Correção Etapa 18 (política de retry): 401/403 é falha PERMANENTE
+    (token inválido nunca se resolve tentando de novo) -- NUNCA fica READY,
+    nunca é retryable automaticamente."""
     monkeypatch.setattr("requests.post", lambda *a, **k: FakeResponse(401, {}))
     wo = _work_order()
     resultado = PageForgeAdapter().dispatch(wo)
-    assert resultado.status == "READY"
+    assert resultado.status == "FAILED"
     assert "token-de-teste-nunca-real" not in (resultado.last_error or "")
     assert resultado.last_error
 
@@ -183,7 +186,7 @@ def test_dispatch_401_nunca_expoe_token_e_mantem_ready(monkeypatch):
 def test_dispatch_403_tratado_igual_401(monkeypatch):
     monkeypatch.setattr("requests.post", lambda *a, **k: FakeResponse(403, {}))
     resultado = PageForgeAdapter().dispatch(_work_order())
-    assert resultado.status == "READY"
+    assert resultado.status == "FAILED"
 
 
 def test_dispatch_5xx_e_transitorio_mantem_ready(monkeypatch):
@@ -237,6 +240,17 @@ def test_dispatch_nao_redespacha_ordem_cancelada(monkeypatch):
     wo = _work_order(status="CANCELLED")
     resultado = PageForgeAdapter().dispatch(wo)
     assert resultado.status == "CANCELLED"
+
+
+def test_dispatch_aceita_status_running_como_ponto_de_partida(monkeypatch):
+    """Etapa 18 -- crash-safety: `core/production_runner.py` grava RUNNING
+    ANTES de chamar dispatch() (marcador de "em andamento" persistido antes
+    da chamada de rede). dispatch() precisa aceitar esse marcador como ponto
+    de partida válido, senão o próprio dispatch nunca aconteceria."""
+    monkeypatch.setattr("requests.post", lambda *a, **k: FakeResponse(200, {"status": "RECEIVED"}))
+    wo = _work_order(status="RUNNING")
+    resultado = PageForgeAdapter().dispatch(wo)
+    assert resultado.status == "DISPATCHED"
 
 
 # ---------------------------------------------------------------------------

@@ -199,9 +199,14 @@ class PageForgeAdapter:
             work_order.last_error = f"PageForgeAdapter não processa executor_type={work_order.executor_type!r}."
             return work_order
 
-        if work_order.status not in {"READY", "DISPATCHED"}:
+        if work_order.status not in {"READY", "DISPATCHED", "RUNNING"}:
             # Idempotência por ESTADO -- nunca redespacha uma ordem já
             # concluída/falhada/cancelada, mesmo que chamado de novo.
+            # RUNNING é aceito aqui (Etapa 18 -- crash-safety): é o marcador
+            # que `core/production_runner.py` grava ANTES de chamar
+            # `dispatch()` (para sobreviver a um crash no meio da chamada de
+            # rede) -- sem isto, o próprio dispatch() rejeitaria seu marcador
+            # de segurança e nunca despacharia nada de verdade.
             return work_order
 
         if not _token_configurado():
@@ -224,10 +229,15 @@ class PageForgeAdapter:
             return work_order  # transitorio -- status permanece READY, pode tentar de novo
 
         if resposta.status_code in (401, 403):
-            work_order.last_error = "PageForge rejeitou a autenticação (token inválido/ausente)."
+            # Falha PERMANENTE (Etapa 18 -- política de retry): um token
+            # inválido/ausente nunca se resolve sozinho tentando de novo --
+            # ao contrário de erros transitórios, isto NUNCA fica READY
+            # (nunca é elegível para retry automático do runner).
+            work_order.status = "FAILED"
+            work_order.last_error = "PageForge rejeitou a autenticação (token inválido/ausente) -- erro permanente, requer intervenção humana (não é retryable)."
             work_order.updated_at = _agora()
-            logger.warning("=== [PAGEFORGE_ADAPTER] Autenticação rejeitada (work_order=%s) ===", work_order.work_order_id)
-            return work_order  # nunca expõe o token; status permanece READY
+            logger.warning("=== [PAGEFORGE_ADAPTER] Autenticação rejeitada (work_order=%s) -- marcado FAILED, não é retryable ===", work_order.work_order_id)
+            return work_order  # nunca expõe o token
 
         if resposta.status_code == 429 or resposta.status_code >= 500:
             work_order.last_error = f"PageForge indisponível/sobrecarregado (HTTP {resposta.status_code})."
