@@ -350,6 +350,26 @@ def test_collect_result_completed_com_output_real_marca_completed(monkeypatch):
     assert resultado.last_error is None
 
 
+def test_collect_result_completed_com_apenas_file_ref_ainda_marca_completed(monkeypatch):
+    """Correção pós-incidente real: mesmo quando a publicação bonita falha
+    (sem preview_url/deployment_url), o backup durável (file_ref) sozinho
+    já é output real suficiente para o gate aceitar COMPLETED -- o
+    conteúdo nunca mais fica sem nenhuma referência recuperável."""
+    monkeypatch.setattr("requests.get", lambda *a, **k: FakeResponse(200, {
+        "status": "COMPLETED",
+        "artifact": {
+            "artifact_id": "artf_cris-wo-carla", "artifact_type": "LANDING_PAGE",
+            "page_id": "cris-wo-carla", "version": "1", "checksum": "abc123",
+            "file_ref": "https://pageforge-public.blob.vercel-storage.com/cris-os-artifacts/wo_carla.html",
+        },
+    }))
+    wo = _work_order(status="RUNNING")
+    resultado = PageForgeAdapter().collect_result(wo)
+    assert resultado.status == "COMPLETED"
+    assert any("file_ref" in ref for ref in resultado.output_refs)
+    assert resultado.last_error is None
+
+
 def test_collect_result_completed_sem_output_nunca_marca_completed(monkeypatch):
     """Gate crítico -- reaproveita core.production_orders.pode_marcar_completed.
     PageForge dizer 'COMPLETED' sem nenhum artefato reconhecível NUNCA é

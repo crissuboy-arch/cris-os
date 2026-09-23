@@ -79,10 +79,14 @@ _MAPA_STATUS_PAGEFORGE = {
 
 # Campos reais do objeto `artifact` (confirmados no código-fonte do
 # PageForge, `api/integrations/cris-os/work-orders.js`) -- qualquer um
-# presente vira um output_ref rastreável ("campo:valor").
+# presente vira um output_ref rastreável ("campo:valor"). `file_ref`
+# (backup durável do HTML, sempre gravado ANTES da publicação bonita --
+# correção pós-incidente real) foi adicionado ao contrato do PageForge
+# depois deste adapter existir; nunca falta mesmo que `preview_url`/
+# `deployment_url` fiquem ausentes por falha de publicação.
 _CAMPOS_OUTPUT_CANDIDATOS = (
     "artifact_id", "artifact_type", "page_id", "version", "checksum",
-    "preview_url", "deployment_url",
+    "preview_url", "deployment_url", "file_ref",
 )
 
 
