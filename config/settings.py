@@ -104,6 +104,15 @@ class Settings:
     PAGEFORGE_BRIDGE_TOKEN: str = os.getenv("PAGEFORGE_BRIDGE_TOKEN", "").strip()
     PAGEFORGE_TIMEOUT: int = _get_int("PAGEFORGE_TIMEOUT", 30)
 
+    # --- Production Runner (core/production_runner.py) ---
+    # DESLIGADO por padrão (Etapa 17): construir/testar o runner não liga a
+    # fila real sozinho. Só quando True o loop periódico (canal Telegram)
+    # passa a despachar WorkOrders READY elegíveis automaticamente -- gates
+    # humanos (requires_approval) e executores não conectados continuam
+    # sempre respeitados, ligado ou desligado.
+    PRODUCTION_RUNNER_ENABLED: bool = _get_bool("PRODUCTION_RUNNER_ENABLED", False)
+    PRODUCTION_RUNNER_INTERVAL_SECONDS: int = _get_int("PRODUCTION_RUNNER_INTERVAL_SECONDS", 300)
+
     # --- ODS (Osmantic Deployment System) ---
     ODS_ENABLED: bool = _get_bool("ODS_ENABLED", True)
     ODS_BASE_URL: str = os.getenv("ODS_BASE_URL", "http://localhost:11434").rstrip("/")

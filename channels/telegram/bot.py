@@ -242,9 +242,47 @@ class TelegramChannel:
         await update.message.reply_text(f"```\n{texto}\n```")
 
     # ------------------------------------------------------------------
+    # Production Runner (Etapa 17) -- loop periódico DENTRO do mesmo
+    # processo/event loop já usado pelo polling do Telegram (nenhum
+    # serviço/dependência nova). DESLIGADO por padrão -- ver
+    # `settings.PRODUCTION_RUNNER_ENABLED` (config/settings.py) e
+    # `core/production_runner.py` para a lógica de elegibilidade/dispatch.
+    @staticmethod
+    def _executar_ciclo_production_runner() -> None:
+        from core.production_runner import processar_fila_elegivel
+        from tools.opportunity_tools import get_project_brain_store
+
+        resultados = processar_fila_elegivel(get_project_brain_store())
+        if resultados:
+            logger.info("=== [PRODUCTION_RUNNER] %d WorkOrder(s) processada(s): %s ===", len(resultados), resultados)
+
+    async def _loop_production_runner(self) -> None:
+        from config.settings import settings
+
+        while True:
+            try:
+                await asyncio.to_thread(self._executar_ciclo_production_runner)
+            except Exception:
+                # Uma falha de um ciclo nunca derruba o loop -- registra e
+                # tenta de novo no próximo intervalo.
+                logger.exception("=== [PRODUCTION_RUNNER] Falha no ciclo periódico ===")
+            await asyncio.sleep(settings.PRODUCTION_RUNNER_INTERVAL_SECONDS)
+
+    async def _post_init(self, app: Application) -> None:
+        from config.settings import settings
+
+        if not settings.PRODUCTION_RUNNER_ENABLED:
+            logger.info("Production Runner desligado (PRODUCTION_RUNNER_ENABLED=false) -- nenhuma WorkOrder é despachada automaticamente.")
+            return
+        logger.info(
+            "Production Runner ligado -- verificando WorkOrders elegíveis a cada %ss.",
+            settings.PRODUCTION_RUNNER_INTERVAL_SECONDS,
+        )
+        app.create_task(self._loop_production_runner())
+
     def run(self) -> None:
         """Inicia o canal em long-polling (bloqueante)."""
-        app = Application.builder().token(self.token).build()
+        app = Application.builder().token(self.token).post_init(self._post_init).build()
         app.add_handler(CommandHandler("start", self._on_start))
         app.add_handler(CommandHandler("ods", self._on_ods))
         app.add_handler(CommandHandler("agent", self._on_agent))
