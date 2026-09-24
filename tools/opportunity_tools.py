@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import logging
 import re
+import unicodedata
 
 try:
     import truststore
@@ -55,33 +56,40 @@ _FONTES = [
         "nome": "tiktok",
         "tabela": "tiktok_minerados",
         "campo_busca": "hashtag",
-        "colunas": "hashtag,creator,video_url,views,likes,viral_score,created_at",
+        "colunas": "hashtag,creator,video_url,hook,description,hashtags,views,likes,viral_score,created_at",
         "ordem": "viral_score.desc",
         "metrica_principal": "viral_score",
+        # Campos de CONTEUDO real do candidato (Etapa 27 -- nunca inclui o
+        # proprio campo de busca `hashtag`, que e so o termo usado pra
+        # encontrar a linha e bateria com qualquer coisa trivialmente).
+        "campos_conteudo": ("hook", "description", "hashtags", "creator"),
     },
     {
         "nome": "instagram",
         "tabela": "instagram_minerados",
         "campo_busca": "search",
-        "colunas": "search,owner_username,post_url,likes_count,engagement_score,created_at",
+        "colunas": "search,owner_username,post_url,caption,hashtags,likes_count,engagement_score,created_at",
         "ordem": "engagement_score.desc",
         "metrica_principal": "engagement_score",
+        "campos_conteudo": ("caption", "hashtags", "owner_username"),
     },
     {
         "nome": "youtube",
         "tabela": "youtube_minerados",
         "campo_busca": "query",
-        "colunas": "query,channel_name,video_url,views,viral_score,created_at",
+        "colunas": "query,channel_name,video_url,title,description,hashtags,views,viral_score,created_at",
         "ordem": "viral_score.desc",
         "metrica_principal": "viral_score",
+        "campos_conteudo": ("title", "description", "hashtags", "channel_name"),
     },
     {
         "nome": "google_trends",
         "tabela": "google_trends_minerados",
         "campo_busca": "keyword",
-        "colunas": "keyword,geo,trend,avg_interest,peak_interest,created_at",
+        "colunas": "keyword,geo,trend,related_queries,related_topics,avg_interest,peak_interest,created_at",
         "ordem": "avg_interest.desc",
         "metrica_principal": "avg_interest",
+        "campos_conteudo": ("related_queries", "related_topics"),
     },
 ]
 
@@ -363,14 +371,98 @@ def _extrair_termos_busca(oferta: dict) -> list[str]:
     return unicos
 
 
-def _buscar_sinal_fonte(fonte: dict, termos: list[str]) -> SinalPlataforma:
+# ---------------------------------------------------------------------------
+# Relevância temática de candidatos (Etapa 27) -- correção de um bug real:
+# o `ilike *termo*` do SQL casa qualquer linha que contenha o termo como
+# SUBSTRING (ex.: hashtag "automação com IA" bate em QUALQUER vídeo minerado
+# com essa hashtag, mesmo que o conteúdo real não tenha nada a ver -- um
+# vídeo de "máquina de cozinha automática" com viral_score alto venceu um
+# vídeo real sobre N8N/agentes de IA só por causa do score). A partir de
+# agora: RELEVÂNCIA TEMÁTICA PRIMEIRO (filtro), viral_score DEPOIS (ordena
+# só entre quem já passou no filtro -- a própria ordem da consulta SQL, que
+# já pede `order=<metrica>.desc`, é preservada).
+#
+# O vocabulário de relevância é sempre DERIVADO da própria oferta (keyword/
+# nicho/anunciante/headline/copy) -- nunca uma lista fixa pensada pra uma
+# oportunidade específica. Um candidato só é relevante se seu próprio texto
+# de CONTEÚDO (nunca o campo de busca usado pra encontrá-lo -- ver
+# `campos_conteudo` em `_FONTES`) tiver pelo menos uma palavra em comum com
+# esse vocabulário.
+# ---------------------------------------------------------------------------
+
+_STOPWORDS_RELEVANCIA = frozenset({
+    "de", "da", "do", "das", "dos", "com", "para", "uma", "um", "uns", "umas",
+    "os", "as", "que", "e", "a", "o", "em", "no", "na", "nos", "nas", "sua",
+    "seu", "seus", "suas", "este", "esta", "isso", "mais", "muito", "por",
+    "ao", "aos", "à", "às", "the", "and", "for", "with", "from", "your",
+    "you", "to", "of", "is", "in", "on", "at",
+})
+
+
+def _normalizar_texto_relevancia(texto: str) -> str:
+    """Remove acentos e baixa a caixa -- normalização simples e
+    determinística (nunca usa IA/LLM pra isso)."""
+    sem_acento = unicodedata.normalize("NFKD", texto or "")
+    sem_acento = "".join(c for c in sem_acento if not unicodedata.combining(c))
+    return sem_acento.lower()
+
+
+def _tokenizar_relevancia(texto: str) -> set[str]:
+    normalizado = _normalizar_texto_relevancia(texto)
+    palavras = re.findall(r"[a-z0-9]+", normalizado)
+    return {p for p in palavras if len(p) >= 2 and p not in _STOPWORDS_RELEVANCIA}
+
+
+def _extrair_vocabulario_relevancia(oferta: dict) -> set[str]:
+    """Vocabulário de relevância temática desta oferta -- derivado SOMENTE
+    dos próprios campos de texto do anúncio real (keyword/nicho/anunciante/
+    headline/copy). Nunca hardcoded pra uma oportunidade específica."""
+    campos = (
+        oferta.get("keyword"), oferta.get("advertiser"), oferta.get("headline"),
+        oferta.get("copy"), oferta.get("niche"),
+    )
+    vocabulario: set[str] = set()
+    for campo in campos:
+        if campo:
+            vocabulario |= _tokenizar_relevancia(campo)
+    return vocabulario
+
+
+def _texto_conteudo_candidato(linha: dict, campos_conteudo: tuple[str, ...]) -> str:
+    partes = []
+    for campo in campos_conteudo:
+        valor = linha.get(campo)
+        if isinstance(valor, list):
+            partes.append(" ".join(str(v) for v in valor))
+        elif valor:
+            partes.append(str(valor))
+    return " ".join(partes)
+
+
+def _candidato_e_relevante(linha: dict, campos_conteudo: tuple[str, ...], vocabulario: set[str]) -> bool:
+    """Sem vocabulário derivável da oferta (ex.: anúncio sem headline/copy/
+    keyword), nunca bloqueia por falta de dado NOSSO -- todo candidato passa.
+    Com vocabulário, exige pelo menos 1 palavra real em comum com o
+    CONTEÚDO do candidato (nunca com o termo de busca usado pra achá-lo)."""
+    if not vocabulario:
+        return True
+    tokens_candidato = _tokenizar_relevancia(_texto_conteudo_candidato(linha, campos_conteudo))
+    return bool(tokens_candidato & vocabulario)
+
+
+def _buscar_sinal_fonte(fonte: dict, termos: list[str], vocabulario_relevancia: set[str]) -> SinalPlataforma:
     url = settings.SUPABASE_URL.rstrip("/")
     for termo in termos:
         params = {
             "select": fonte["colunas"],
             fonte["campo_busca"]: f"ilike.*{termo}*",
             "order": fonte["ordem"],
-            "limit": "3",
+            # Janela maior que antes (era 3): o filtro de relevância pode
+            # descartar os primeiros colocados por score (ex.: o vídeo de
+            # maior viral_score pode não ter nada a ver com o tema) -- sem
+            # mais candidatos pra escolher, o filtro nunca teria chance de
+            # achar um relevante mais abaixo no ranking.
+            "limit": "10",
         }
         try:
             resp = requests.get(
@@ -385,17 +477,28 @@ def _buscar_sinal_fonte(fonte: dict, termos: list[str]) -> SinalPlataforma:
                 fonte["tabela"], exc,
             )
             continue
-        if linhas:
-            melhor = linhas[0]
-            metrica = melhor.get(fonte["metrica_principal"])
-            resumo = (
-                f"{len(linhas)} resultado(s) para '{termo}' -- "
-                f"{fonte['metrica_principal']}: {metrica}"
-            )
-            return SinalPlataforma(
-                fonte=fonte["nome"], encontrado=True, resumo=resumo,
-                metricas=melhor, termo_busca=termo,
-            )
+
+        # RELEVÂNCIA PRIMEIRO (filtro) -- a ordem que sobra é a mesma que a
+        # consulta SQL já devolveu (por `fonte["ordem"]`, ex.: viral_score
+        # desc), então o primeiro candidato relevante já é o de maior score
+        # ENTRE os relevantes -- nenhuma reordenação manual necessária.
+        candidatos_relevantes = [
+            linha for linha in linhas
+            if _candidato_e_relevante(linha, fonte["campos_conteudo"], vocabulario_relevancia)
+        ]
+        if not candidatos_relevantes:
+            continue  # nada relevante pra este termo -- tenta o próximo termo
+
+        melhor = candidatos_relevantes[0]
+        metrica = melhor.get(fonte["metrica_principal"])
+        resumo = (
+            f"{len(candidatos_relevantes)} resultado(s) relevante(s) para '{termo}' -- "
+            f"{fonte['metrica_principal']}: {metrica}"
+        )
+        return SinalPlataforma(
+            fonte=fonte["nome"], encontrado=True, resumo=resumo,
+            metricas=melhor, termo_busca=termo,
+        )
     return SinalPlataforma(
         fonte=fonte["nome"], encontrado=False,
         resumo="Sem evidencia disponivel nesta fonte.", termo_busca=None,
@@ -436,7 +539,8 @@ def investigar_oportunidade(entrada: str, session: str = "") -> str:
         return oferta
 
     termos = _extrair_termos_busca(oferta)
-    sinais = [_buscar_sinal_fonte(fonte, termos) for fonte in _FONTES]
+    vocabulario_relevancia = _extrair_vocabulario_relevancia(oferta)
+    sinais = [_buscar_sinal_fonte(fonte, termos, vocabulario_relevancia) for fonte in _FONTES]
 
     concorrencia_texto = _contar_concorrencia_scalaflow(oferta.get("keyword"), oferta.get("id", ""))
 
