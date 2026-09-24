@@ -518,6 +518,69 @@ def investigar_oportunidade(entrada: str, session: str = "") -> str:
     return "\n".join(linhas)
 
 
+def solicitar_mineracao_complementar(entrada: str, session: str = "") -> str:
+    """
+    Ponte Etapa 23 (`core/scalaflow_mining_client.py`): quando a oportunidade
+    em foco ficou em INVESTIGATE_MORE por falta de evidência cruzada, pede
+    ao ScalaFlow (server-to-server, endpoint já em produção) para minerar as
+    fontes que faltam -- reaproveita o MESMO termo de busca já usado pela
+    investigação original (`_extrair_termos_busca`), nunca inventa um novo.
+
+    NUNCA é chamado automaticamente por `investigar_oportunidade` -- exige
+    um pedido explícito desta Tool. NUNCA reavalia a decisão sozinho (isso
+    fica para uma nova investigação, pedida separadamente) -- esta função
+    termina na solicitação de mineração, exatamente como definido na Etapa
+    23 ("esta etapa termina na ponte funcional").
+    """
+    from core.scalaflow_mining_client import FONTES_MINERACAO_VALIDAS, solicitar_mineracao
+
+    oferta = _resolver_por_foco_atual(session)
+    if isinstance(oferta, str):
+        return oferta
+
+    foco = get_foco_atual(session)
+    store = _get_project_brain_store()
+    brain = store.load(foco)
+    if not brain:
+        return "Não consegui recuperar o projeto em foco."
+
+    if brain.decisao.recommended_path != "INVESTIGATE_MORE":
+        return (
+            f"Esta oportunidade não está em INVESTIGATE_MORE (caminho atual: "
+            f"{brain.decisao.recommended_path}) -- mineração complementar não se aplica."
+        )
+
+    fontes_faltantes = [f for f in (brain.oportunidade.risks or []) if f in FONTES_MINERACAO_VALIDAS]
+    if not fontes_faltantes:
+        return "Nenhuma fonte pendente de mineração para esta oportunidade."
+
+    termos = _extrair_termos_busca(oferta)
+    if not termos:
+        return "Não há termo de busca derivável desta oferta -- mineração não solicitada."
+    termo = termos[0]
+
+    linhas = [
+        f"Solicitando mineração complementar ao ScalaFlow (termo: '{termo}') "
+        f"para: {', '.join(fontes_faltantes)}",
+        "",
+    ]
+    for fonte in fontes_faltantes:
+        resultado = solicitar_mineracao(fonte, termo)
+        if resultado.ok:
+            linhas.append(f"{fonte}: solicitado com sucesso -- {resultado.dados}")
+        else:
+            linhas.append(f"{fonte}: {resultado.status} -- {resultado.erro}")
+
+    linhas += [
+        "",
+        "Nenhuma reavaliação automática foi feita -- peça para investigar esta "
+        "oportunidade de novo depois para o motor recalcular a decisão com os "
+        "dados novos.",
+        f"Projeto: {brain.project_id}",
+    ]
+    return "\n".join(linhas)
+
+
 def get_tools() -> list[Tool]:
     return [
         Tool(
@@ -549,5 +612,18 @@ def get_tools() -> list[Tool]:
             # LLM generico -- que responde "nao consigo abrir links
             # externos" (bug real encontrado no teste da Fase 3).
             matcher=lambda t: detectar_ad_library_id(t) is not None,
+        ),
+        Tool(
+            "solicitar_mineracao_complementar",
+            "Pede ao ScalaFlow para minerar as fontes que ainda faltam "
+            "(TikTok/Instagram/YouTube/Google Trends) para a oportunidade em "
+            "foco quando ela está em INVESTIGATE_MORE",
+            [
+                "minere evidencia", "minere evidência", "minerar evidencia",
+                "minerar evidência", "mineracao complementar", "mineração complementar",
+                "buscar evidencia cruzada", "buscar evidência cruzada",
+                "minerar fontes", "minere as fontes", "minere fontes que faltam",
+            ],
+            solicitar_mineracao_complementar,
         ),
     ]

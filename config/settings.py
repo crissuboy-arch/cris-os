@@ -104,6 +104,20 @@ class Settings:
     PAGEFORGE_BRIDGE_TOKEN: str = os.getenv("PAGEFORGE_BRIDGE_TOKEN", "").strip()
     PAGEFORGE_TIMEOUT: int = _get_int("PAGEFORGE_TIMEOUT", 30)
 
+    # --- ScalaFlow Mining Bridge (Etapa 23 -- core/scalaflow_mining_client.py) ---
+    # Ponte server-to-server já em produção no ScalaFlow: reaproveita os
+    # mineradores reais dele (TikTok/Instagram/YouTube/Google Trends) e
+    # persiste o resultado na MESMA fonte de verdade que o Cris OS já lê
+    # (tabelas `*_minerados`, Supabase do ScalaFlow) -- nenhum minerador
+    # duplicado aqui. CRIS_OS_MINING_SECRET precisa ser EXATAMENTE o mesmo
+    # valor configurado no ScalaFlow. Vazio = cliente recusa solicitar
+    # mineração (nunca chama sem autenticação, nunca finge sucesso).
+    SCALAFLOW_MINING_URL: str = os.getenv(
+        "SCALAFLOW_MINING_URL", "https://escalaflow-insights.vercel.app/api/integrations/mining/run"
+    ).strip()
+    CRIS_OS_MINING_SECRET: str = os.getenv("CRIS_OS_MINING_SECRET", "").strip()
+    SCALAFLOW_MINING_TIMEOUT: int = _get_int("SCALAFLOW_MINING_TIMEOUT", 30)
+
     # --- Production Runner (core/production_runner.py) ---
     # DESLIGADO por padrão (Etapa 17): construir/testar o runner não liga a
     # fila real sozinho. Só quando True o loop periódico (canal Telegram)
