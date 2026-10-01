@@ -104,6 +104,14 @@ class Settings:
     PAGEFORGE_BRIDGE_TOKEN: str = os.getenv("PAGEFORGE_BRIDGE_TOKEN", "").strip()
     PAGEFORGE_TIMEOUT: int = _get_int("PAGEFORGE_TIMEOUT", 30)
 
+    # --- Athena/Hermes (executor ATHENA -- core/athena_adapter.py) ---
+    # Ponte HTTP LOCAL da Athena (somente 127.0.0.1; o Cris OS nunca acessa
+    # os arquivos da Athena). ATHENA_BRIDGE_TOKEN precisa ter o MESMO valor do
+    # token da ponte do lado da Athena. Sem token o adapter nunca despacha.
+    ATHENA_BRIDGE_URL: str = os.getenv("ATHENA_BRIDGE_URL", "http://127.0.0.1:8765").rstrip("/")
+    ATHENA_BRIDGE_TOKEN: str = os.getenv("ATHENA_BRIDGE_TOKEN", "").strip()
+    ATHENA_TIMEOUT: int = _get_int("ATHENA_TIMEOUT", 15)
+
     # --- ScalaFlow Mining Bridge (Etapa 23 -- core/scalaflow_mining_client.py) ---
     # Ponte server-to-server já em produção no ScalaFlow: reaproveita os
     # mineradores reais dele (TikTok/Instagram/YouTube/Google Trends) e

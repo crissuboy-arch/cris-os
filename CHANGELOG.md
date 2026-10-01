@@ -5,6 +5,25 @@ All notable changes to CRIS OS will be documented in this file.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Executor ATHENA (Athena/Hermes)
+
+#### Added
+- **AthenaAdapter** (`core/athena_adapter.py`): adapter REAL do `ExecutorAdapter` para o executor `ATHENA`, via ponte HTTP local da Athena (`127.0.0.1`, Bearer `ATHENA_BRIDGE_TOKEN`). Mesmo padrão e mesma política de erros do PageForge; nunca despacha sem token; `COMPLETED` só com output real.
+- `config/settings.py`: `ATHENA_BRIDGE_URL`, `ATHENA_BRIDGE_TOKEN`, `ATHENA_TIMEOUT`.
+- `tests/test_athena_adapter.py` (27 testes, sem rede real).
+- `docs/ATHENA_CRIS_OS_INTEGRATION.md`.
+
+#### Changed (aditivo)
+- `PRODUCTION_EXECUTOR_TYPES_VALIDOS` inclui `ATHENA`; `EXECUTOR_REGISTRY["ATHENA"] = AthenaAdapter()`.
+- Roteamento fixo (`core/production_router.py`) **inalterado**: nenhum asset vai para ATHENA automaticamente.
+
+### Technical Details
+- **Tests**: 1166 passed; 34 falhas/erros pré-existentes inalterados (plugin `cris_notes` e `test_production_runner_desligado_por_padrao`, que depende do `.env`); zero falhas novas.
+
+---
+
 ## [v0.6.0] - 2026-07-29
 
 ### CRIS OS Studio - Fase 6

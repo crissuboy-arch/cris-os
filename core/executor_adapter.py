@@ -20,6 +20,7 @@ from __future__ import annotations
 
 from typing import Protocol, runtime_checkable
 
+from core.athena_adapter import AthenaAdapter
 from core.pageforge_adapter import PageForgeAdapter
 from memory.project_brain import ProductionWorkOrder
 
@@ -84,6 +85,10 @@ class AdapterNaoConectado:
 EXECUTOR_REGISTRY: dict[str, ExecutorAdapter] = {
     "APP_BUILDER": AdapterNaoConectado(),
     "PAGEFORGE": PageForgeAdapter(),
+    # ATHENA (Athena/Hermes) -- adapter REAL via ponte local (core/athena_adapter.py);
+    # recusa despachar sem ATHENA_BRIDGE_TOKEN. Nenhum asset_type é roteado para
+    # ATHENA automaticamente (tabela fixa de core/production_router.py inalterada).
+    "ATHENA": AthenaAdapter(),
     "PINK_LOGIC": AdapterNaoConectado(),
     "FORGEHUB": AdapterNaoConectado(),
     "NEXORA": AdapterNaoConectado(),

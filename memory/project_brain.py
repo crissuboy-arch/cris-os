@@ -861,7 +861,7 @@ PRODUCTION_ASSET_TYPES_VALIDOS = frozenset({
 # inicial). "NEEDS_ROUTING" nao e um executor de verdade -- e o sinal
 # explicito de "ninguem sabe processar isto ainda".
 PRODUCTION_EXECUTOR_TYPES_VALIDOS = frozenset({
-    "APP_BUILDER", "PAGEFORGE", "PINK_LOGIC", "FORGEHUB", "NEXORA", "NEEDS_ROUTING",
+    "APP_BUILDER", "PAGEFORGE", "PINK_LOGIC", "FORGEHUB", "NEXORA", "ATHENA", "NEEDS_ROUTING",
 })
 
 
